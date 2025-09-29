@@ -1,413 +1,462 @@
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, Calculator, TrendingUp, TrendingDown, Download } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Plus, Trash2, Calculator, TrendingUp, TrendingDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { useBudget } from "@/hooks/useBudget";
 
-interface BudgetItem {
-  id: string;
-  categoria: string;
-  planejado: number;
-  realizado: number;
-}
+type NewBudgetRow = {
+  category: string;
+  planned: number;
+  actual: number;
+  type: "income" | "expense";
+};
+
+const defaultNewRow: NewBudgetRow = {
+  category: "",
+  planned: 0,
+  actual: 0,
+  type: "expense",
+};
+
+const categorySuggestions = {
+  income: ["Salário", "Freelances", "Investimentos", "Outros Rendimentos"],
+  expense: [
+    "Moradia",
+    "Alimentação",
+    "Transporte",
+    "Saúde",
+    "Educação",
+    "Lazer",
+    "Roupas",
+    "Emergência",
+    "Outros",
+  ],
+};
+
+const monthKey = (date = new Date()) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
 const BudgetManager = () => {
-  const [items, setItems] = useState<BudgetItem[]>([]);
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  });
-  const [newItem, setNewItem] = useState<Partial<BudgetItem>>({
-    categoria: "",
-    planejado: 0,
-    realizado: 0,
-  });
+  const { state, addRow, updateRow, removeRow } = useBudget();
   const { toast } = useToast();
+  const [currentMonth, setCurrentMonth] = useState(() => monthKey());
+  const [newRow, setNewRow] = useState<NewBudgetRow>(defaultNewRow);
 
-  // Categorias pré-definidas
-  const categoriasSugestoes = [
-    "Salário", "Freelances", "Investimentos", "Outros Rendimentos", // Receitas
-    "Moradia", "Alimentação", "Transporte", "Saúde", "Educação",   // Despesas essenciais
-    "Lazer", "Roupas", "Investimentos", "Emergência", "Outros"     // Outras despesas
-  ];
-
-  // Carregar dados do mês atual
-  useEffect(() => {
-    const savedData = localStorage.getItem(`sp_budget_${currentMonth}`);
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        setItems(parsed || []);
-      } catch (error) {
-        console.error("Erro ao carregar orçamento:", error);
-        setItems([]);
-      }
-    } else {
-      setItems([]);
-    }
-  }, [currentMonth]);
-
-  // Salvar dados automaticamente
-  useEffect(() => {
-    localStorage.setItem(`sp_budget_${currentMonth}`, JSON.stringify(items));
-  }, [items, currentMonth]);
-
-  // Cálculos
-  const totals = items.reduce(
-    (acc, item) => {
-      // Considera positivo = receita, negativo = despesa
-      if (item.planejado >= 0) {
-        acc.receitasPlanejadas += item.planejado;
-        acc.receitasRealizadas += Math.max(0, item.realizado);
-      } else {
-        acc.despesasPlanejadas += Math.abs(item.planejado);
-        acc.despesasRealizadas += Math.abs(Math.min(0, item.realizado));
-      }
-      
-      acc.saldoPlanejado = acc.receitasPlanejadas - acc.despesasPlanejadas;
-      acc.saldoRealizado = acc.receitasRealizadas - acc.despesasRealizadas;
-      
-      return acc;
-    },
-    {
-      receitasPlanejadas: 0,
-      receitasRealizadas: 0,
-      despesasPlanejadas: 0,
-      despesasRealizadas: 0,
-      saldoPlanejado: 0,
-      saldoRealizado: 0,
-    }
+  const items = useMemo(
+    () => state.budget.filter((row) => row.month === currentMonth),
+    [state.budget, currentMonth],
   );
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(value);
-  };
+  const totals = useMemo(() => {
+    return items.reduce(
+      (acc, row) => {
+        if (row.type === "income") {
+          acc.incomePlanned += row.planned;
+          acc.incomeActual += row.actual;
+        } else {
+          acc.expensePlanned += row.planned;
+          acc.expenseActual += row.actual;
+        }
+        return acc;
+      },
+      {
+        incomePlanned: 0,
+        incomeActual: 0,
+        expensePlanned: 0,
+        expenseActual: 0,
+      },
+    );
+  }, [items]);
 
-  const addItem = () => {
-    if (!newItem.categoria?.trim()) {
+  const balancePlanned = totals.incomePlanned - totals.expensePlanned;
+  const balanceActual = totals.incomeActual - totals.expenseActual;
+
+  const formatCurrency = (value: number) =>
+    new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+
+  const handleAddRow = () => {
+    if (!newRow.category.trim()) {
       toast({
-        title: "Erro",
-        description: "Categoria é obrigatória",
-        variant: "destructive"
+        title: "Categoria obrigatória",
+        description: "Informe uma categoria antes de adicionar",
+        variant: "destructive",
       });
       return;
     }
 
-    const item: BudgetItem = {
-      id: Date.now().toString(),
-      categoria: newItem.categoria.trim(),
-      planejado: Number(newItem.planejado) || 0,
-      realizado: Number(newItem.realizado) || 0,
-    };
-
-    setItems(prev => [...prev, item]);
-    setNewItem({
-      categoria: "",
-      planejado: 0,
-      realizado: 0,
-    });
+    addRow({ ...newRow, month: currentMonth });
+    setNewRow(defaultNewRow);
 
     toast({
-      title: "Sucesso",
-      description: `${item.categoria} adicionado ao orçamento`,
+      title: "Categoria adicionada",
+      description: `${newRow.category} incluída no orçamento`,
     });
   };
 
-  const removeItem = (id: string) => {
-    setItems(prev => prev.filter(item => item.id !== id));
-    toast({
-      title: "Item removido",
-      description: "Item removido do orçamento",
-    });
+  const handleSuggestion = (suggestion: string) => {
+    setNewRow((prev) => ({ ...prev, category: suggestion }));
   };
 
-  const updateItem = (id: string, field: keyof BudgetItem, value: any) => {
-    setItems(prev => prev.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
-    ));
-  };
-
-  const exportToCSV = () => {
-    const headers = ["Categoria", "Planejado", "Realizado", "Saldo", "Status"];
-    const rows = items.map(item => {
-      const saldo = item.planejado - Math.abs(item.realizado);
-      const status = saldo >= 0 ? "Dentro do orçamento" : "Acima do orçamento";
-      return [
-        item.categoria,
-        item.planejado.toFixed(2),
-        item.realizado.toFixed(2),
-        saldo.toFixed(2),
-        status
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map(row => row.map(field => `"${field}"`).join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    link.setAttribute("href", url);
-    link.setAttribute("download", `orcamento_${currentMonth}.csv`);
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const getMonthName = (monthStr: string) => {
-    const [year, month] = monthStr.split("-");
-    const date = new Date(parseInt(year), parseInt(month) - 1);
-    return date.toLocaleDateString("pt-BR", { year: "numeric", month: "long" });
+  const getStatus = (row: typeof items[number]) => {
+    if (row.type === "income") {
+      return {
+        label: row.actual >= row.planned ? "Meta atingida" : "Abaixo da meta",
+        variant: row.actual >= row.planned ? "default" : "secondary",
+      } as const;
+    }
+    const dentroOrcamento = row.actual <= row.planned;
+    return {
+      label: dentroOrcamento ? "Dentro do orçamento" : "Acima do orçamento",
+      variant: dentroOrcamento ? "default" : "destructive",
+    } as const;
   };
 
   return (
-    <div className="space-y-6">
-      {/* Header com seletor de mês */}
+    <div className="budget-root w-full space-y-6">
       <Card className="financial-card--budget">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle className="flex items-center">
-              <Calculator className="h-5 w-5 mr-2" />
+              <Calculator className="mr-2 h-5 w-5" />
               Orçamento Familiar
             </CardTitle>
             <CardDescription>
-              Controle suas finanças mensais - {getMonthName(currentMonth)}
+              Acompanhe receitas e despesas do mês atual.
             </CardDescription>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-3">
             <div>
               <Label>Mês</Label>
               <Input
                 type="month"
                 value={currentMonth}
-                onChange={(e) => setCurrentMonth(e.target.value)}
+                onChange={(event) => setCurrentMonth(event.target.value)}
                 className="input-financial w-40"
               />
             </div>
-            <Button
-              onClick={exportToCSV}
-              variant="outline"
-              size="sm"
-              className="btn-financial--ghost"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Exportar CSV
-            </Button>
           </div>
         </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <p className="text-xs uppercase text-primary/70">Receitas Planejadas</p>
+              <p className="text-xl font-semibold text-primary">{formatCurrency(totals.incomePlanned)}</p>
+            </div>
+            <div className="rounded-lg border border-primary/20 bg-primary/5 p-4">
+              <p className="text-xs uppercase text-primary/70">Receitas Realizadas</p>
+              <p className="text-xl font-semibold text-primary">{formatCurrency(totals.incomeActual)}</p>
+            </div>
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+              <p className="text-xs uppercase text-destructive">Despesas Planejadas</p>
+              <p className="text-xl font-semibold text-destructive">{formatCurrency(totals.expensePlanned)}</p>
+            </div>
+            <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-4">
+              <p className="text-xs uppercase text-destructive">Despesas Realizadas</p>
+              <p className="text-xl font-semibold text-destructive">{formatCurrency(totals.expenseActual)}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-success/30 bg-success/10 p-4">
+              <p className="text-xs uppercase text-success">Saldo Planejado</p>
+              <p className="text-xl font-semibold text-success">{formatCurrency(balancePlanned)}</p>
+            </div>
+            <div className="rounded-lg border border-success/30 bg-success/10 p-4">
+              <p className="text-xs uppercase text-success">Saldo Realizado</p>
+              <p className="text-xl font-semibold text-success">{formatCurrency(balanceActual)}</p>
+            </div>
+          </div>
+        </CardContent>
       </Card>
 
-      {/* KPIs */}
-      <div className="kpi-grid">
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Receitas (Planejado)</div>
-            <div className="kpi-value text-success">{formatCurrency(totals.receitasPlanejadas)}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Realizado: {formatCurrency(totals.receitasRealizadas)}
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Despesas (Planejado)</div>
-            <div className="kpi-value text-destructive">{formatCurrency(totals.despesasPlanejadas)}</div>
-            <div className="text-xs text-muted-foreground mt-1">
-              Realizado: {formatCurrency(totals.despesasRealizadas)}
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Saldo (Planejado)</div>
-            <div className={`kpi-value ${totals.saldoPlanejado >= 0 ? 'text-success' : 'text-destructive'}`}>
-              {formatCurrency(totals.saldoPlanejado)}
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Saldo (Realizado)</div>
-            <div className={`kpi-value ${totals.saldoRealizado >= 0 ? 'text-success' : 'text-destructive'}`}>
-              {formatCurrency(totals.saldoRealizado)}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Adicionar Item */}
+      <div className="grid gap-6 lg:grid-cols-3">
         <Card className="financial-card lg:col-span-1">
           <CardHeader>
             <CardTitle className="flex items-center">
-              <Plus className="h-5 w-5 mr-2" />
+              <Plus className="mr-2 h-5 w-5" />
               Nova Categoria
             </CardTitle>
+            <CardDescription>Adicione receitas ou despesas para este mês.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
+            <div className="grid gap-2">
+              <Label>Tipo</Label>
+              <Select
+                value={newRow.type}
+                onValueChange={(value: "income" | "expense") => setNewRow((prev) => ({ ...prev, type: value }))}
+              >
+                <SelectTrigger className="input-financial">
+                  <SelectValue placeholder="Selecione o tipo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="income">Receita</SelectItem>
+                  <SelectItem value="expense">Despesa</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
               <Label>Categoria</Label>
               <Input
-                value={newItem.categoria || ""}
-                onChange={(e) => setNewItem(prev => ({ ...prev, categoria: e.target.value }))}
-                placeholder="Ex: Alimentação"
+                value={newRow.category}
+                onChange={(event) => setNewRow((prev) => ({ ...prev, category: event.target.value }))}
                 className="input-financial"
               />
-              
-              {/* Sugestões de categorias */}
-              <div className="flex flex-wrap gap-1 mt-2">
-                {categoriasSugestoes.map((cat, index) => (
+              <div className="flex flex-wrap gap-1">
+                {categorySuggestions[newRow.type].map((suggestion) => (
                   <Badge
-                    key={index}
+                    key={suggestion}
                     variant="outline"
-                    className="cursor-pointer hover:bg-primary/20 text-xs"
-                    onClick={() => setNewItem(prev => ({ ...prev, categoria: cat }))}
+                    className="cursor-pointer hover:bg-primary/20"
+                    onClick={() => handleSuggestion(suggestion)}
                   >
-                    {cat}
+                    {suggestion}
                   </Badge>
                 ))}
               </div>
             </div>
 
-            <div>
-              <Label>Valor Planejado (R$)</Label>
+            <div className="grid gap-2">
+              <Label>Planejado (R$)</Label>
               <Input
                 type="number"
                 step="0.01"
-                value={newItem.planejado || ""}
-                onChange={(e) => setNewItem(prev => ({ ...prev, planejado: Number(e.target.value) }))}
-                placeholder="Positivo = receita, Negativo = despesa"
-                className="input-financial"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Use valores positivos para receitas e negativos para despesas
-              </p>
-            </div>
-
-            <div>
-              <Label>Valor Realizado (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={newItem.realizado || ""}
-                onChange={(e) => setNewItem(prev => ({ ...prev, realizado: Number(e.target.value) }))}
+                value={newRow.planned}
+                onChange={(event) => setNewRow((prev) => ({ ...prev, planned: Number(event.target.value) || 0 }))}
                 className="input-financial"
               />
             </div>
 
-            <Button onClick={addItem} className="w-full btn-financial--primary">
-              <Plus className="h-4 w-4 mr-2" />
+            <div className="grid gap-2">
+              <Label>Realizado (R$)</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={newRow.actual}
+                onChange={(event) => setNewRow((prev) => ({ ...prev, actual: Number(event.target.value) || 0 }))}
+                className="input-financial"
+              />
+            </div>
+
+            <Button onClick={handleAddRow} className="w-full btn-financial--primary">
+              <Plus className="mr-2 h-4 w-4" />
               Adicionar Categoria
             </Button>
           </CardContent>
         </Card>
 
-        {/* Lista do orçamento */}
         <Card className="financial-card lg:col-span-2">
           <CardHeader>
             <CardTitle className="flex items-center">
-              <TrendingUp className="h-5 w-5 mr-2" />
+              <TrendingUp className="mr-2 h-5 w-5 text-success" />
               Orçamento Detalhado
             </CardTitle>
-            <CardDescription>{items.length} categorias</CardDescription>
+            <CardDescription>{items.length} categorias em {currentMonth}</CardDescription>
           </CardHeader>
           <CardContent>
             {items.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Calculator className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>Nenhuma categoria ainda</p>
-                <p className="text-sm">Adicione categorias para controlar seu orçamento</p>
+              <div className="rounded-md border border-dashed border-border/60 p-8 text-center text-muted-foreground">
+                <Calculator className="mx-auto mb-4 h-10 w-10 opacity-50" />
+                <p className="font-medium">Nenhuma categoria ainda</p>
+                <p className="text-sm">Adicione receitas ou despesas para comecar a planejar.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Categoria</th>
-                      <th>Planejado</th>
-                      <th>Realizado</th>
-                      <th>Saldo</th>
-                      <th>Status</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((item) => {
-                      const saldo = item.planejado - Math.abs(item.realizado);
-                      const isReceita = item.planejado >= 0;
-                      const status = isReceita 
-                        ? item.realizado >= item.planejado ? "Meta atingida" : "Abaixo da meta"
-                        : saldo >= 0 ? "Dentro do orçamento" : "Acima do orçamento";
-                      
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <div className="flex items-center">
-                              {isReceita ? (
-                                <TrendingUp className="h-4 w-4 text-success mr-2" />
-                              ) : (
-                                <TrendingDown className="h-4 w-4 text-destructive mr-2" />
-                              )}
-                              {item.categoria}
+              <div className="budget-detailed space-y-4 sm:space-y-6">
+                <Accordion type="single" collapsible className="budget-accordion sm:hidden">
+                  {items.map((item) => {
+                    const saldo =
+                      item.type === "income"
+                        ? item.actual - item.planned
+                        : item.planned - item.actual;
+                    const status = getStatus(item);
+                    const saldoClass = saldo >= 0 ? "text-success" : "text-destructive";
+
+                    return (
+                      <AccordionItem
+                        key={item.id}
+                        value={String(item.id)}
+                        className="budget-card rounded-lg border border-border/60 bg-card/40"
+                      >
+                        <AccordionTrigger className="budget-card__trigger px-3 py-2 text-sm">
+                          <div className="flex min-w-0 flex-col text-left">
+                            <span className="truncate">{item.category || "-"}</span>
+                            <span className="text-xs capitalize text-muted-foreground">
+                              {item.type === "income" ? "Receita" : "Despesa"}
+                            </span>
+                          </div>
+                          <span className={`text-sm font-semibold ${saldoClass}`}>
+                            {formatCurrency(item.actual)}
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent className="budget-card__content px-3 pb-3 pt-0">
+                          <div className="flex flex-col gap-4">
+                            <div className="budget-row flex items-center gap-3">
+                              <span className="text-sm text-muted-foreground">Tipo</span>
+                              <div className="min-w-0 flex flex-1">
+                                <Select
+                                  value={item.type}
+                                  onValueChange={(value: "income" | "expense") =>
+                                    updateRow(item.id, { type: value })
+                                  }
+                                >
+                                  <SelectTrigger className="h-9 w-full justify-between text-sm">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="income">Receita</SelectItem>
+                                    <SelectItem value="expense">Despesa</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
                             </div>
-                          </td>
-                          <td>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.planejado}
-                              onChange={(e) => updateItem(item.id, "planejado", Number(e.target.value))}
-                              className="w-28 h-8 text-xs"
-                            />
-                          </td>
-                          <td>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.realizado}
-                              onChange={(e) => updateItem(item.id, "realizado", Number(e.target.value))}
-                              className="w-28 h-8 text-xs"
-                            />
-                          </td>
-                          <td className={saldo >= 0 ? "text-success" : "text-destructive"}>
-                            {formatCurrency(saldo)}
-                          </td>
-                          <td>
-                            <Badge
-                              variant={
-                                isReceita
-                                  ? item.realizado >= item.planejado ? "default" : "secondary"
-                                  : saldo >= 0 ? "default" : "destructive"
-                              }
-                              className="text-xs"
-                            >
-                              {status}
-                            </Badge>
-                          </td>
-                          <td>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeItem(item.id)}
-                              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                            <div className="budget-row flex items-center gap-3">
+                              <span className="text-sm text-muted-foreground">Planejado</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.planned}
+                                onChange={(event) =>
+                                  updateRow(item.id, { planned: Number(event.target.value) || 0 })
+                                }
+                                className="h-9 flex-1 min-w-0 text-right text-sm"
+                              />
+                            </div>
+                            <div className="budget-row flex items-center gap-3">
+                              <span className="text-sm text-muted-foreground">Realizado</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.actual}
+                                onChange={(event) =>
+                                  updateRow(item.id, { actual: Number(event.target.value) || 0 })
+                                }
+                                className="h-9 flex-1 min-w-0 text-right text-sm"
+                              />
+                            </div>
+                            <div className="budget-row flex items-center justify-between gap-3">
+                              <span className="text-sm text-muted-foreground">Saldo</span>
+                              <span className={`text-sm font-semibold ${saldoClass}`}>
+                                {formatCurrency(saldo)}
+                              </span>
+                            </div>
+                            <div className="budget-row flex items-center justify-between gap-3">
+                              <span className="text-sm text-muted-foreground">Status</span>
+                              <Badge variant={status.variant} className="text-xs">
+                                {status.label}
+                              </Badge>
+                            </div>
+                            <div className="budget-row flex justify-end">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeRow(item.id)}
+                                className="h-auto px-3 py-2 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Remover
+                              </Button>
+                            </div>
+                          </div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    );
+                  })}
+                </Accordion>
+                <div className="hidden overflow-x-auto sm:block">
+                  <table className="data-table min-w-full">
+                    <thead>
+                      <tr>
+                        <th>Categoria</th>
+                        <th>Tipo</th>
+                        <th>Planejado</th>
+                        <th>Realizado</th>
+                        <th>Saldo</th>
+                        <th>Status</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item) => {
+                        const saldo =
+                          item.type === "income"
+                            ? item.actual - item.planned
+                            : item.planned - item.actual;
+                        const status = getStatus(item);
+                        const saldoClass = saldo >= 0 ? "text-success" : "text-destructive";
+                        return (
+                          <tr key={item.id}>
+                            <td>
+                              <div className="flex items-center gap-2">
+                                {item.type === "income" ? (
+                                  <TrendingUp className="h-4 w-4 text-success" />
+                                ) : (
+                                  <TrendingDown className="h-4 w-4 text-destructive" />
+                                )}
+                                {item.category || "-"}
+                              </div>
+                            </td>
+                            <td>
+                              <Select
+                                value={item.type}
+                                onValueChange={(value: "income" | "expense") => updateRow(item.id, { type: value })}
+                              >
+                                <SelectTrigger className="h-8 min-w-[6rem] justify-between text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="income">Receita</SelectItem>
+                                  <SelectItem value="expense">Despesa</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </td>
+                            <td>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.planned}
+                                onChange={(event) =>
+                                  updateRow(item.id, { planned: Number(event.target.value) || 0 })
+                                }
+                                className="h-8 min-w-[6rem] text-right text-xs"
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.actual}
+                                onChange={(event) =>
+                                  updateRow(item.id, { actual: Number(event.target.value) || 0 })
+                                }
+                                className="h-8 min-w-[6rem] text-right text-xs"
+                              />
+                            </td>
+                            <td className={saldoClass}>{formatCurrency(saldo)}</td>
+                            <td>
+                              <Badge variant={status.variant} className="text-xs">
+                                {status.label}
+                              </Badge>
+                            </td>
+                            <td>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeRow(item.id)}
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </CardContent>
@@ -418,3 +467,4 @@ const BudgetManager = () => {
 };
 
 export default BudgetManager;
+

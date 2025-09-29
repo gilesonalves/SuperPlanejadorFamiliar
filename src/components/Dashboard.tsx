@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Wallet, Calculator, PieChart, BarChart3 } from "lucide-react";
+import { TrendingUp, Wallet, Calculator, PieChart, BarChart3, ShoppingBasket } from "lucide-react";
 import WalletManager from "./WalletManager";
 import BudgetManager from "./BudgetManager";
+import { Link } from "react-router-dom";
 
-const Dashboard = () => {
-  const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "budget">("overview");
+type DashboardProps = { initialTab?: "overview" | "wallet" | "budget" };
+
+const Dashboard = ({ initialTab = "overview" }: DashboardProps) => {
+  const [activeTab, setActiveTab] = useState<"overview" | "wallet" | "budget">(initialTab);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   const renderContent = () => {
     switch (activeTab) {
@@ -131,11 +138,11 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background overflow-x-hidden">
       {/* Header */}
       <header className="border-b border-border/50 bg-card/30 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="container mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center space-x-4">
               <div className="p-2 bg-primary/20 rounded-lg">
                 <TrendingUp className="h-6 w-6 text-primary" />
@@ -146,7 +153,13 @@ const Dashboard = () => {
               </div>
             </div>
             
-            <nav className="flex space-x-2">
+            <nav className="flex flex-wrap gap-2 sm:justify-end">
+              <Link to="/shopping">
+                <Button variant="ghost" size="sm" className="btn-financial">
+                  <ShoppingBasket className="mr-2 h-4 w-4" />
+                  Lista de Compras
+                </Button>
+              </Link>
               <Button
                 variant={activeTab === "overview" ? "default" : "ghost"}
                 size="sm"
@@ -180,7 +193,7 @@ const Dashboard = () => {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-4 sm:px-6 py-8">
         {renderContent()}
       </main>
     </div>
