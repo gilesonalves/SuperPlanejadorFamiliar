@@ -9,16 +9,19 @@ export default function Dashboard() {
       <div className="financial-card financial-card--wallet">
         <div className="flex items-center space-x-4">
           <div className="p-3 bg-primary/20 rounded-xl">
-            <TrendingUp className="h-8 w-8 text-primary" />
+            <TrendingUp className="w-5 h-5 md:h-8 md:w-8 text-primary" />
           </div>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">SuperPlanejador</h1>
-            <p className="text-muted-foreground">
+          <div className="min-w-0">
+            <h2 className="text-balance break-words text-2xl font-semibold leading-tight sm:text-3xl">
+              SuperPlanejador
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Controle sua carteira de investimentos e orçamento familiar
             </p>
           </div>
         </div>
       </div>
+      
 
       {/* Cards de acesso rápido */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
