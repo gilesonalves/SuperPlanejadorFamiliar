@@ -26,14 +26,22 @@ const navItems = [
   { to: "/shopping", label: "Lista de Compras", icon: ShoppingBasket },
 ] as const;
 
-export default function MainNav() {
+
+
+type Props = { direction?: "row" | "col" };
+export default function MainNav({ direction = "row" }: Props) {
   const navigate = useNavigate();
   const { user } = useAuth();
+
+  const navClass =
+  direction === "row"
+    ? "flex flex-row items-center gap-2"
+    : "flex flex-col gap-2";
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
       {/* NAV LINKS */}
-      <nav className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      <nav className={navClass}>
         {navItems.map(({ to, label, icon: Icon }) => (
           <NavLink
             key={to}
@@ -42,7 +50,8 @@ export default function MainNav() {
             className={({ isActive }) =>
               cn(
                 buttonVariants({ variant: isActive ? "default" : "ghost", size: "sm" }),
-                "btn-financial flex items-center gap-2"
+                "btn-financial flex items-center gap-2 justify-start",
+                direction === "col" && "w-full"
               )
             }
           >
