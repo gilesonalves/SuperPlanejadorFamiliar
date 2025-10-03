@@ -1,12 +1,7 @@
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { useAuth } from "@/hooks/useAuth";
+// src/components/layout/MainNav.tsx
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useAuth, signOut } from "@/hooks/useAuth";
 import {
   BarChart3,
   Wallet,
@@ -15,57 +10,65 @@ import {
   User,
   LogOut,
 } from "lucide-react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const navItems = [
-  { to: "/", label: "Resumo", icon: BarChart3 },
+  { to: "/home", label: "Resumo", icon: BarChart3 },
   { to: "/wallet", label: "Carteira", icon: Wallet },
-  { to: "/budget", label: "Orcamento", icon: Calculator },
+  { to: "/budget", label: "Orçamento", icon: Calculator },
   { to: "/shopping", label: "Lista de Compras", icon: ShoppingBasket },
 ] as const;
 
-const MainNav = () => {
-  const location = useLocation();
+export default function MainNav() {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+      {/* NAV LINKS */}
       <nav className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-        {navItems.map(({ to, label, icon: Icon }) => {
-          const isActive = location.pathname === to;
-          return (
-            <Button
-              key={to}
-              asChild
-              size="sm"
-              variant={isActive ? "default" : "ghost"}
-              className="btn-financial"
-            >
-              <NavLink to={to} className="flex items-center gap-2">
-                <Icon className="h-4 w-4" />
-                <span>{label}</span>
-              </NavLink>
-            </Button>
-          );
-        })}
+        {navItems.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end
+            className={({ isActive }) =>
+              cn(
+                buttonVariants({ variant: isActive ? "default" : "ghost", size: "sm" }),
+                "btn-financial flex items-center gap-2"
+              )
+            }
+          >
+            <Icon className="h-4 w-4" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
       </nav>
 
+      {/* USER MENU */}
       {user ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="sm:ml-1">
-              <div className="flex items-center gap-2">
-                <Avatar className="h-7 w-7">
-                  <AvatarFallback className="bg-primary/10 text-primary">
-                    {user.email?.charAt(0)?.toUpperCase() || "U"}
-                  </AvatarFallback>
-                </Avatar>
-                <span className="hidden text-sm font-medium sm:inline">
-                  {user.email?.split("@")[0] || "Conta"}
-                </span>
-              </div>
-            </Button>
+          <DropdownMenuTrigger
+            className={cn(
+              buttonVariants({ variant: "ghost", size: "sm" }),
+              "sm:ml-1 flex items-center gap-2"
+            )}
+          >
+            <Avatar className="h-7 w-7">
+              <AvatarFallback className="bg-primary/10 text-primary">
+                {user.email?.charAt(0)?.toUpperCase() || "U"}
+              </AvatarFallback>
+            </Avatar>
+            <span className="hidden text-sm font-medium sm:inline">
+              {user.email?.split("@")[0] || "Conta"}
+            </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             <DropdownMenuItem className="gap-2" onClick={() => navigate("/profile")}>
@@ -73,21 +76,20 @@ const MainNav = () => {
             </DropdownMenuItem>
             <DropdownMenuItem
               className="gap-2 text-destructive focus:text-destructive"
-              onClick={() => {
-                void signOut();
-              }}
+              onClick={() => { void signOut(); }}
             >
               <LogOut className="h-4 w-4" /> Sair
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (
-        <Button asChild size="sm" className="sm:ml-1">
-          <NavLink to="/login">Entrar</NavLink>
-        </Button>
+        <NavLink
+          to="/login"
+          className={cn(buttonVariants({ variant: "default", size: "sm" }), "sm:ml-1")}
+        >
+          Entrar
+        </NavLink>
       )}
     </div>
   );
-};
-
-export default MainNav;
+}

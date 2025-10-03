@@ -1,71 +1,57 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
-type UseAuthReturn = {
-  user: User | null;
-  loading: boolean;
-  signOut: () => Promise<void>;
-  supabaseAvailable: boolean;
-};
-
-export function useAuth(): UseAuthReturn {
+export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const supabaseAvailable = Boolean(supabase);
+  const [loading, setL] = useState(true);
 
   useEffect(() => {
-    if (!supabase) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
+    let alive = true;
 
-    let active = true;
+    // 1) pega a sessão atual (pós-OAuth/email)
+    supabase.auth.getSession().then(({ data }) => {
+      if (!alive) return;
+      setUser(data.session?.user ?? null);
+      setL(false);
+    });
 
-    const loadSession = async () => {
-      try {
-        const { data, error } = await supabase.auth.getUser();
-        if (!active) {
-          return;
-        }
-        if (error) {
-          setUser(null);
-          return;
-        }
-        setUser(data.user ?? null);
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadSession();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    // 2) escuta mudanças (login/logout/refresh)
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       setUser(session?.user ?? null);
-      setLoading(false);
     });
 
     return () => {
-      active = false;
-      subscription.unsubscribe();
+      alive = false;
+      sub.subscription.unsubscribe();
     };
   }, []);
 
-  const signOut = useCallback(async () => {
-    if (!supabase) {
-      setUser(null);
-      setLoading(false);
-      return;
-    }
+  return { user, loading };
+}
 
-    await supabase.auth.signOut();
-    setUser(null);
-  }, []);
-
-  return { user, loading, signOut, supabaseAvailable };
+// Ações
+export async function signOut() {
+  await supabase.auth.signOut();
+}
+export async function signInEmailPassword(email: string, password: string) {
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  return error?.message ?? null;
+}
+export async function signInWithGoogle() {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: { redirectTo: window.location.origin },
+  });
+  return error?.message ?? null;
+}
+export async function signUpEmailPassword(email: string, password: string) {
+  const { error } = await supabase.auth.signUp({ email, password });
+  return error?.message ?? null;
+}
+export async function resetPassword(email: string) {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/auth/update-password`,
+  });
+  return error?.message ?? null;
 }
