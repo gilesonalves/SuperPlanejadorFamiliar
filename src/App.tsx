@@ -1,50 +1,44 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
-import RootLayout from "@/pages/_layout/RootLayout";
-import Index from "@/pages/Index";
-import Wallet from "@/pages/Wallet";
-import Budget from "@/pages/Budget";
+// src/App.tsx
+import { Navigate, createBrowserRouter, RouterProvider } from "react-router-dom";
+import AppShell from "@/components/layout/AppShell";
+import RequireAuth from "@/routes/RequireAuth";
 import Shopping from "@/pages/Shopping";
-import NotFound from "@/pages/NotFound";
+
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 import ForgotPassword from "@/pages/auth/ForgotPassword";
 import Profile from "@/pages/auth/Profile";
+import WalletManager from "./components/WalletManager";
+import BudgetManager from "./components/BudgetManager";
+import Dashboard from "./components/Dashboard";
 
-const router = createBrowserRouter(
-  [
-    {
-      path: "/",
-      element: <RootLayout />,
-      children: [
-        { index: true, element: <Index /> },
-        { path: "wallet", element: <Wallet /> },
-        { path: "budget", element: <Budget /> },
-        { path: "shopping", element: <Shopping /> },
-        { path: "login", element: <Login /> },
-        { path: "register", element: <Register /> },
-        { path: "forgot", element: <ForgotPassword /> },
-        { path: "profile", element: <Profile /> },
-        { path: "*", element: <NotFound /> },
-      ],
-    },
-  ],
-  { future: { v7_startTransition: true, v7_relativeSplatPath: true } },
-);
+const router = createBrowserRouter([
+  // públicas
+  { path: "/login", element: <Login /> },
+  { path: "/register", element: <Register /> },
+  { path: "/forgot", element: <ForgotPassword /> },
 
-const queryClient = new QueryClient();
+  // layout + privadas
+  {
+    element: <AppShell />,  // contém <Outlet />
+    children: [
+      {
+        element: <RequireAuth />,  // protege tudo abaixo
+        children: [
+          { index: true, element: <Navigate to="/home" replace /> },
+          { path: "home", element: <Dashboard /> },
+          { path: "wallet", element: <WalletManager /> },   // 👈 aqui
+          { path: "budget", element: <BudgetManager /> },   // 👈 aqui
+          { path: "shopping", element: <Shopping /> },
+          { path: "profile", element: <Profile /> },
+        ],
+      },
+    ],
+  },
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <RouterProvider router={router} />
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+  { path: "*", element: <Navigate to="/home" replace /> },
+]);
 
-export default App;
+export default function App() {
+  return <RouterProvider router={router} />;
+}
