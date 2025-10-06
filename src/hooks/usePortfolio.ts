@@ -1,41 +1,105 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { loadLocal, saveLocal, subscribeLocal } from "@/services/storage";
 import { fetchQuoteSingle, fetchQuotesBatch, fetchQuotesSequential } from "@/services/brapi";
-import {
-  loadLocal,
-  saveLocal,
-  subscribeLocal,
-  type AppState,
-  type PortfolioItem,
-} from "@/services/storage";
 
-const normalizePortfolioItem = (item: PortfolioItem, index: number): PortfolioItem => {
-  const fallbackId = `p-${Date.now()}-${index}`;
-  const id = typeof item.id === "string" && item.id.length > 0 ? item.id : fallbackId;
-  const qty = Number((item as any).qty ?? (item as any).quantidade ?? 0) || 0;
-  const price = Number((item as any).price ?? (item as any).preco ?? 0) || 0;
-  const monthlyYield = Number((item as any).monthlyYield ?? (item as any).dyMensal ?? 0) || 0;
-  const symbol = (item as any).symbol ?? (item as any).ticker ?? "";
-  const assetClass = (item as any).assetClass ?? (item as any).classe;
+export type AssetClass = "FII" | "ACAO" | "CRYPTO";
 
-  return {
-    id,
-    symbol,
-    name: (item as any).name ?? (item as any).nome ?? "",
-    sector: (item as any).sector ?? (item as any).setor ?? "",
-    qty,
-    price,
-    monthlyYield,
-    assetClass: assetClass === "FII" || assetClass === "ACAO" ? assetClass : undefined,
-  };
+export type PortfolioItem = {
+  id: string;
+  symbol: string; // ex: MXRF11 / PETR4 / BTC
+  name: string;
+  sector: string;
+  qty: number;
+  price: number;
+  monthlyYield?: number;
+  assetClass: AssetClass;
 };
 
-const normalizeState = (state: AppState): AppState => ({
-  ...state,
-  portfolio: Array.isArray(state.portfolio)
-    ? state.portfolio.map((item, index) => normalizePortfolioItem(item, index))
-    : [],
-});
+export type Targets = { fii: number; acao: number; crypto: number };
 
+// Estado vindo do storage (nao traga tipos do hook para o storage p/ evitar ciclo)
+import type { AppState as StoreAppState } from "@/services/storage";
+
+// Estado usado **dentro** do hook com portfolio tipado
+type AppState = Omit<StoreAppState, "portfolio"> & { portfolio: PortfolioItem[] };
+
+type Quote = {
+  symbol: string;
+  regularMarketPrice?: number;
+  longName?: string;
+  shortName?: string;
+  sector?: string;
+};
+
+type PortfolioItemLike = Partial<PortfolioItem> & {
+  symbol?: string; // alias antigos
+  ticker?: string;
+  setor?: string;
+  preco?: number;
+  quantity?: number;
+  classe?: string;
+  class?: string;
+};
+
+type SettingsLike = Partial<StoreAppState["settings"]>;
+
+const toStringSafe = (v: unknown): string => (v ?? "").toString();
+const toNumberSafe = (v: unknown): number => {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+};
+const toAssetClass = (v: unknown): AssetClass => {
+  return v === "FII" || v === "ACAO" || v === "CRYPTO" ? v : "FII";
+};
+const clamp = (v: unknown, min = 0, max = 100): number => {
+  const n = Number(v ?? 0);
+  if (Number.isNaN(n)) return min;
+  return Math.min(max, Math.max(min, n));
+};
+
+function normalizePortfolioItem(item: PortfolioItemLike, index: number): PortfolioItem {
+  const id =
+    typeof item.id === "string" && item.id.length > 0 ? item.id : `p-${Date.now()}-${index}`;
+
+  const symbol = toStringSafe(item.symbol ?? item.ticker).toUpperCase();
+  const name = toStringSafe(item.name);
+  const sector = toStringSafe(item.sector ?? item.setor);
+  const qty = toNumberSafe(item.qty ?? item.quantity);
+  const price = toNumberSafe(item.price ?? item.preco);
+  const monthlyYield = toNumberSafe(item.monthlyYield);
+  const assetClass = toAssetClass(item.assetClass ?? item.classe ?? item.class);
+
+  return { id, symbol, name, sector, qty, price, monthlyYield, assetClass };
+}
+
+function normalizeSettings(settings: SettingsLike): AppState["settings"] {
+  const rawTargets = settings?.targetAllocation ?? { fii: 70, acao: 30, crypto: 0 };
+
+  return {
+    contributionBudget: toNumberSafe(settings?.contributionBudget),
+    targetAllocation: {
+      fii: clamp(rawTargets.fii, 0, 100),
+      acao: clamp(rawTargets.acao, 0, 100),
+      crypto: clamp(rawTargets.crypto, 0, 100),
+    },
+    brapiToken: toStringSafe(settings?.brapiToken),
+  };
+}
+
+function normalizeState(state: StoreAppState): AppState {
+  const portfolio = Array.isArray(state.portfolio)
+    ? state.portfolio.map((it, index) => normalizePortfolioItem(it as PortfolioItemLike, index))
+    : [];
+
+  return {
+    ...state,
+    portfolio,
+    budget: toNumberSafe(state.budget),
+    settings: normalizeSettings(state.settings),
+  };
+}
+
+// ===== Hook principal =====
 export function usePortfolio() {
   const [state, setState] = useState<AppState>(() => normalizeState(loadLocal()));
   const [loading, setLoading] = useState(false);
@@ -43,35 +107,43 @@ export function usePortfolio() {
   const skipSaveRef = useRef(false);
 
   useEffect(() => {
-    return subscribeLocal(() => {
+    const unsubscribe = subscribeLocal(() => {
       skipSaveRef.current = true;
       setState(normalizeState(loadLocal()));
     });
+
+    return unsubscribe;
   }, []);
 
+  // persiste mudancas locais
   useEffect(() => {
     if (skipSaveRef.current) {
       skipSaveRef.current = false;
       return;
     }
+
     saveLocal(state);
   }, [state]);
 
   const addItem = useCallback((item: Omit<PortfolioItem, "id">) => {
-    const id = `${item.symbol}-${Date.now()}`;
-    setState((prev) => ({
-      ...prev,
-      portfolio: [...prev.portfolio, normalizePortfolioItem({ ...item, id } as PortfolioItem, prev.portfolio.length)],
-    }));
+    setState((prev) => {
+      const normalized = normalizePortfolioItem(
+        { ...item, id: `${item.symbol}-${Date.now()}` },
+        prev.portfolio.length,
+      );
+
+      return {
+        ...prev,
+        portfolio: [...prev.portfolio, normalized],
+      };
+    });
   }, []);
 
   const updateItem = useCallback((id: string, patch: Partial<PortfolioItem>) => {
     setState((prev) => ({
       ...prev,
-      portfolio: prev.portfolio.map((item, index) =>
-        item.id === id
-          ? normalizePortfolioItem({ ...item, ...patch }, index)
-          : item,
+      portfolio: prev.portfolio.map((it, index) =>
+        it.id === id ? normalizePortfolioItem({ ...it, ...patch }, index) : it,
       ),
     }));
   }, []);
@@ -79,17 +151,14 @@ export function usePortfolio() {
   const removeItem = useCallback((id: string) => {
     setState((prev) => ({
       ...prev,
-      portfolio: prev.portfolio.filter((item) => item.id !== id),
+      portfolio: prev.portfolio.filter((it) => it.id !== id),
     }));
   }, []);
 
   const updateSettings = useCallback((settings: Partial<AppState["settings"]>) => {
     setState((prev) => ({
       ...prev,
-      settings: {
-        ...prev.settings,
-        ...settings,
-      },
+      settings: normalizeSettings({ ...prev.settings, ...settings }),
     }));
   }, []);
 
@@ -97,33 +166,33 @@ export function usePortfolio() {
     try {
       setLoading(true);
       setError(null);
+
       const latest = normalizeState(loadLocal());
-      const tickers = Array.from(new Set(latest.portfolio.map((item) => item.symbol))).filter(Boolean);
-      if (!tickers.length) {
-        setLoading(false);
-        return;
-      }
-      const quotes = await fetchQuotesBatch(tickers, latest.settings.brapiToken);
-      const quoteMap = new Map(quotes.map((q: any) => [q.symbol, q]));
+      const tickers = Array.from(new Set(latest.portfolio.map((i) => i.symbol))).filter(Boolean);
+      if (!tickers.length) return;
+
+      const quotes: Quote[] = await fetchQuotesBatch(tickers, latest.settings.brapiToken);
+      const map = new Map<string, Quote>(quotes.map((q) => [q.symbol, q]));
+
       setState((prev) => ({
         ...prev,
-        portfolio: prev.portfolio.map((item, index) => {
-          const quote = quoteMap.get(item.symbol);
-          if (!quote) return item;
+        portfolio: prev.portfolio.map((it, index) => {
+          const q = map.get(it.symbol);
+          if (!q) return it;
+
           return normalizePortfolioItem(
             {
-              ...item,
-              price: quote.regularMarketPrice ?? item.price,
-              name: quote.longName ?? quote.shortName ?? item.name,
-              sector: quote.sector ?? item.sector,
-            } as PortfolioItem,
+              ...it,
+              price: q.regularMarketPrice ?? it.price,
+              name: q.longName ?? q.shortName ?? it.name,
+              sector: q.sector ?? it.sector,
+            },
             index,
           );
         }),
       }));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Erro ao atualizar cotacoes";
-      setError(message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erro ao atualizar cotacoes");
     } finally {
       setLoading(false);
     }
@@ -132,29 +201,31 @@ export function usePortfolio() {
   const refreshTicker = useCallback(
     async (symbol: string) => {
       if (!symbol) return;
-      const token = state.settings.brapiToken;
+
       try {
         setLoading(true);
         setError(null);
-        const quote = await fetchQuoteSingle(symbol, token);
+
+        const q = await fetchQuoteSingle(symbol, state.settings.brapiToken);
+
         setState((prev) => ({
           ...prev,
-          portfolio: prev.portfolio.map((item, index) => {
-            if (item.symbol !== symbol) return item;
-            return normalizePortfolioItem(
-              {
-                ...item,
-                price: quote?.regularMarketPrice ?? item.price,
-                name: quote?.longName ?? quote?.shortName ?? item.name,
-                sector: quote?.sector ?? item.sector,
-              } as PortfolioItem,
-              index,
-            );
-          }),
+          portfolio: prev.portfolio.map((it, index) =>
+            it.symbol === symbol
+              ? normalizePortfolioItem(
+                  {
+                    ...it,
+                    price: q?.regularMarketPrice ?? it.price,
+                    name: q?.longName ?? q?.shortName ?? it.name,
+                    sector: q?.sector ?? it.sector,
+                  },
+                  index,
+                )
+              : it,
+          ),
         }));
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : "desconhecido";
-        setError(`Erro ao atualizar ${symbol}: ${message}`);
+      } catch (e: unknown) {
+        setError(`Erro ao atualizar ${symbol}: ${e instanceof Error ? e.message : "desconhecido"}`);
       } finally {
         setLoading(false);
       }
@@ -166,49 +237,42 @@ export function usePortfolio() {
     try {
       setLoading(true);
       setError(null);
-      const latest = normalizeState(loadLocal());
-      const tickers = Array.from(new Set(latest.portfolio.map((item) => item.symbol))).filter(Boolean);
-      if (!tickers.length) {
-        setLoading(false);
-        return;
-      }
-      const quotes = await fetchQuotesSequential(tickers, {
-        token: latest.settings.brapiToken,
+
+      const tickers = Array.from(new Set(state.portfolio.map((i) => i.symbol))).filter(Boolean);
+      if (!tickers.length) return;
+
+      const quotes: Quote[] = await fetchQuotesSequential(tickers, {
+        token: state.settings.brapiToken,
         delayMs: 350,
         maxRetries: 2,
       });
-      const quoteMap = new Map(quotes.map((q: any) => [q.symbol, q]));
+      const map = new Map(quotes.map((q: Quote) => [q.symbol, q]));
+
       setState((prev) => ({
         ...prev,
-        portfolio: prev.portfolio.map((item, index) => {
-          const quote = quoteMap.get(item.symbol);
-          if (!quote) return item;
+        portfolio: prev.portfolio.map((it, index) => {
+          const q = map.get(it.symbol);
+          if (!q) return it;
           return normalizePortfolioItem(
             {
-              ...item,
-              price: quote?.regularMarketPrice ?? item.price,
-              name: quote?.longName ?? quote?.shortName ?? item.name,
-              sector: quote?.sector ?? item.sector,
-            } as PortfolioItem,
+              ...it,
+              price: q?.regularMarketPrice ?? it.price,
+              name: q?.longName ?? q?.shortName ?? it.name,
+              sector: q?.sector ?? it.sector,
+            },
             index,
           );
         }),
       }));
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Erro ao atualizar cotacoes (sequencial)";
-      setError(message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Erro ao atualizar cotacoes (sequencial)");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [state.portfolio, state.settings.brapiToken]);
 
   const total = useMemo(
-    () =>
-      state.portfolio.reduce((acc, item) => {
-        const qty = Number(item.qty) || 0;
-        const price = Number(item.price) || 0;
-        return acc + qty * price;
-      }, 0),
+    () => state.portfolio.reduce((acc, it) => acc + (Number(it.qty) || 0) * (Number(it.price) || 0), 0),
     [state.portfolio],
   );
 
