@@ -1,8 +1,25 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { TrendingUp, Wallet, Calculator, ShoppingBasket, PieChart, BarChart3 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  TrendingUp,
+  Wallet,
+  Calculator,
+  ShoppingBasket,
+  PieChart,
+  BarChart3,
+  Cloud,
+  Goal,
+  UsersRound,
+} from "lucide-react";
 import { Link } from "react-router-dom";
+import FeatureLock from "@/components/FeatureLock";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 export default function Dashboard() {
+  const { flags } = useFeatureFlags();
+  const { OPEN_FINANCE, CASH_FORECAST, MULTI_PROFILE } = flags;
+
   return (
     <main className="container mx-auto px-4 sm:px-6 py-8 space-y-6">
       {/* Hero */}
@@ -21,7 +38,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      
 
       {/* Cards de acesso rápido */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -94,9 +110,7 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent className="flex-1">
-              <p className="text-sm text-muted-foreground">
-                Clique para ir à sua lista de compras.
-              </p>
+              <p className="text-sm text-muted-foreground">Clique para ir à sua lista de compras.</p>
             </CardContent>
           </Card>
         </Link>
@@ -123,6 +137,90 @@ export default function Dashboard() {
             <div className="kpi-value">R$ 0,00</div>
           </div>
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        {OPEN_FINANCE ? (
+          <Card className="h-full">
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Cloud className="h-5 w-5 text-primary" />
+                  Open Finance conectado
+                </CardTitle>
+                <CardDescription>Sincronize bancos e atualize a carteira automaticamente.</CardDescription>
+              </div>
+              <Badge variant="secondary" className="text-xs uppercase">Beta</Badge>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Importações e consolidação de contas ativas com reconciliação diária.
+              </p>
+              <Button asChild size="sm">
+                <Link to="/wallet">Ver integrações</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <FeatureLock
+            title="Integrações Open Finance"
+            description="Conecte contas bancárias e sincronize ativos liberando o plano Pro."
+          />
+        )}
+
+        {CASH_FORECAST ? (
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Goal className="h-5 w-5 text-primary" />
+                Forecast de caixa
+              </CardTitle>
+              <CardDescription>Projeções automáticas com base nos saldos planejados.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Próximos 30 dias</span>
+                <span className="font-semibold text-primary">R$ 0,00</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Risco de caixa</span>
+                <span className="font-semibold text-success">Baixo</span>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <FeatureLock
+            title="Forecast de caixa"
+            description="Ative projeções semanais e alertas liberando o plano Premium."
+          />
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+        {MULTI_PROFILE ? (
+          <Card className="h-full">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <UsersRound className="h-5 w-5 text-primary" />
+                Perfis familiares
+              </CardTitle>
+              <CardDescription>Gerencie finanças pessoais em perfis separados.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Compartilhe carteiras e metas com convidados ou clientes.
+              </p>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/profile">Ir para perfis</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <FeatureLock
+            title="Multi perfis"
+            description="Disponível no plano Premium para contas familiares e squads."
+          />
+        )}
       </div>
     </main>
   );

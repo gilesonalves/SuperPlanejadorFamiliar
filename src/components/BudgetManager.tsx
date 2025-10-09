@@ -9,6 +9,8 @@ import { Plus, Trash2, Calculator, TrendingUp, TrendingDown } from "lucide-react
 import { useToast } from "@/hooks/use-toast";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useBudget } from "@/hooks/useBudget";
+import FeatureLock from "@/components/FeatureLock";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 
 type NewBudgetRow = {
   category: string;
@@ -44,8 +46,11 @@ const monthKey = (date = new Date()) => `${date.getFullYear()}-${String(date.get
 const BudgetManager = () => {
   const { state, addRow, updateRow, removeRow } = useBudget();
   const { toast } = useToast();
+  const { flags, loading: flagsLoading } = useFeatureFlags();
   const [currentMonth, setCurrentMonth] = useState(() => monthKey());
   const [newRow, setNewRow] = useState<NewBudgetRow>(defaultNewRow);
+  const categoryLimitsLocked = !flags.CATEGORY_LIMITS && !flagsLoading;
+  const cashForecastLocked = !flags.CASH_FORECAST && !flagsLoading;
 
   const items = useMemo(
     () => state.budget.filter((row) => row.month === currentMonth),
@@ -80,6 +85,14 @@ const BudgetManager = () => {
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 
   const handleAddRow = () => {
+    if (!flagsLoading && !flags.CATEGORY_LIMITS) {
+      toast({
+        title: "Limites por categoria disponíveis no Pro",
+        description: "Atualize o plano para criar novos limites e metas personalizadas.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (!newRow.category.trim()) {
       toast({
         title: "Categoria obrigatória",
@@ -228,6 +241,7 @@ const BudgetManager = () => {
                 value={newRow.planned}
                 onChange={(event) => setNewRow((prev) => ({ ...prev, planned: Number(event.target.value) || 0 }))}
                 className="input-financial"
+                disabled={categoryLimitsLocked}
               />
             </div>
 
@@ -242,10 +256,23 @@ const BudgetManager = () => {
               />
             </div>
 
-            <Button onClick={handleAddRow} className="w-full btn-financial--primary">
+            <Button
+              onClick={handleAddRow}
+              className="w-full btn-financial--primary"
+              disabled={categoryLimitsLocked}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Adicionar Categoria
             </Button>
+            {categoryLimitsLocked ? (
+              <div className="pt-2">
+                <FeatureLock
+                  title="Limites por categoria bloqueados"
+                  description="Atualize o plano para cadastrar e editar metas planejadas."
+                  variant="inline"
+                />
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -323,6 +350,7 @@ const BudgetManager = () => {
                                   updateRow(item.id, { planned: Number(event.target.value) || 0 })
                                 }
                                 className="h-9 flex-1 min-w-0 text-right text-sm"
+                                disabled={categoryLimitsLocked}
                               />
                             </div>
                             <div className="budget-row flex items-center gap-3">
@@ -422,6 +450,7 @@ const BudgetManager = () => {
                                   updateRow(item.id, { planned: Number(event.target.value) || 0 })
                                 }
                                 className="h-8 min-w-[6rem] text-right text-xs"
+                                disabled={categoryLimitsLocked}
                               />
                             </td>
                             <td>
@@ -462,6 +491,37 @@ const BudgetManager = () => {
           </CardContent>
         </Card>
       </div>
+    </div>
+    <div className="grid grid-cols-1 gap-6">
+      {cashForecastLocked ? (
+        <FeatureLock
+          title="Previsão de caixa automatizada"
+          description="Libere simulações de fluxo de caixa nos planos Pro e Premium."
+        />
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Previsão de Caixa</CardTitle>
+            <CardDescription>Projeção simples baseada no saldo planejado vs. realizado.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-4">
+              <div>
+                <div className="text-xs uppercase text-muted-foreground">Saldo planejado</div>
+                <div className="text-lg font-semibold text-primary">
+                  {formatCurrency(balancePlanned)}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase text-muted-foreground">Saldo realizado</div>
+                <div className="text-lg font-semibold text-primary">
+                  {formatCurrency(balanceActual)}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 };

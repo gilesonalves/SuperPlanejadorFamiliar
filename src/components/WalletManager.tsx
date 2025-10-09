@@ -23,7 +23,9 @@ import EvolutionChart from "@/components/wallet/EvolutionChart";
 import PricesPanel from "@/components/wallet/PricesPanel";
 import SectorSummary from "@/components/wallet/SectorSummary";
 import AIHints from "@/components/wallet/AIHints";
+import FeatureLock from "@/components/FeatureLock";
 import { usePortfolio } from "@/hooks/usePortfolio";
+import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage";
 import { cn } from "@/lib/utils";
 import type { PortfolioItem } from "@/hooks/usePortfolio";
@@ -126,6 +128,7 @@ const WalletManager = () => {
     error,
   } = usePortfolio();
   const { toast } = useToast();
+  const { flags, loading: featureFlagsLoading } = useFeatureFlags();
   const [newItem, setNewItem] = useState<NewItemState>(defaultNewItem);
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") {
@@ -137,6 +140,12 @@ const WalletManager = () => {
   useEffect(() => {
     localStorage.setItem("wallet:viewMode", view);
   }, [view]);
+
+  useEffect(() => {
+    if (cardsLocked && view === "card") {
+      setView("table");
+    }
+  }, [cardsLocked, view]);
   const tickerPlaceholder =
     newItem.assetClass === "FII"
       ? "Ex: MXRF11"
@@ -189,6 +198,17 @@ const WalletManager = () => {
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
+
+  const isLoadingFlags = featureFlagsLoading;
+  const cardsModuleEnabled = flags.CARDS_MODULE;
+  const goalsEnabled = flags.GOALS;
+  const reportsEnabled = flags.REPORTS;
+  const exportsEnabled = flags.EXPORTS;
+  const cardsLocked = !cardsModuleEnabled && !isLoadingFlags;
+  const goalsLocked = !goalsEnabled && !isLoadingFlags;
+  const reportsLocked = !reportsEnabled && !isLoadingFlags;
+  const exportsLocked = !exportsEnabled && !isLoadingFlags;
+  const openFinanceLocked = !flags.OPEN_FINANCE && !isLoadingFlags;
 
   const handleAddItem = () => {
     if (!newItem.symbol.trim()) {
@@ -362,11 +382,19 @@ const WalletManager = () => {
             <RefreshCcw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Atualizar todos (sequencial)
           </Button>
-          <ImportExport
-            dataForExport={state}
-            onImportJSON={handleImportJSON}
-            fileName="superplanejador_carteira"
-          />
+          {exportsEnabled ? (
+            <ImportExport
+              dataForExport={state}
+              onImportJSON={handleImportJSON}
+              fileName="superplanejador_carteira"
+            />
+          ) : (
+            <FeatureLock
+              title="Exportações avançadas"
+              description="Exporte a carteira em JSON no plano Pro."
+              variant="inline"
+            />
+          )}
         </div>
       </div>
 
@@ -440,12 +468,19 @@ const WalletManager = () => {
       </Card>
 
       {/* Blocos analiticos */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <EvolutionChart />
-        <SectorSummary />
-        <PricesPanel />
-        <AIHints />
-      </div>
+      {reportsLocked ? (
+        <FeatureLock
+          title="Relat�rios e dashboards"
+          description="Libere gr�ficos e sugest�es autom�ticas ao subir para o plano Pro."
+        />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <EvolutionChart />
+          <SectorSummary />
+          <PricesPanel />
+          <AIHints />
+        </div>
+      )}
 
       {/* Configurações */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -470,6 +505,13 @@ const WalletManager = () => {
             </div>
 
             {/* Metas (%) */}
+            {goalsLocked ? (
+              <FeatureLock
+                title="Metas de aloca��o"
+                description="Desbloqueie metas percentuais personalizadas com o plano Pro."
+              />
+            ) : (
+              <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <Label>Meta FIIs (%)</Label>
@@ -518,6 +560,8 @@ const WalletManager = () => {
             <div className={cn("text-xs mt-1", sumIsOk ? "text-muted-foreground" : "text-amber-500")}>
               Soma das metas: {sumTargets}% {remaining !== 0 && `(restante ${remaining > 0 ? "+" : ""}${remaining}%)`}
             </div>
+              </>
+            )}
             <div>
               <Label>Token BRAPI (opcional)</Label>
               <Input
@@ -525,13 +569,30 @@ const WalletManager = () => {
                 onChange={(event) => handleTokenChange(event.target.value)}
                 placeholder="Informe seu token para limites maiores"
                 className="input-financial"
+                disabled={openFinanceLocked}
               />
+              {openFinanceLocked ? (
+                <div className="pt-2">
+                  <FeatureLock
+                    title="Open Finance e BRAPI"
+                    description="Conecte integrações automáticas liberando um plano pago."
+                    variant="inline"
+                  />
+                </div>
+              ) : null}
             </div>
 
-            <Button variant="outline" onClick={handleExportCSV} className="btn-financial--ghost">
-              <Download className="mr-2 h-4 w-4" />
-              Exportar CSV
-            </Button>
+            {exportsEnabled ? (
+              <Button variant="outline" onClick={handleExportCSV} className="btn-financial--ghost">
+                <Download className="mr-2 h-4 w-4" />
+                Exportar CSV
+              </Button>
+            ) : (
+              <FeatureLock
+                title="Exportar relat�rios CSV"
+                description="Crie exporta��es completas ao migrar para os planos pagos."
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -671,34 +732,42 @@ const WalletManager = () => {
               Total investido {formatCurrency(total)} | Dividendos mês {formatCurrency(totals.dividendos)}
             </CardDescription>
           </div>
-          <div className="inline-flex items-center gap-1 rounded-md border p-1">
-            <Toggle
-              pressed={view === "card"}
-              onPressedChange={(pressed) => {
-                if (pressed) setView("card");
-              }}
-              size="sm"
-              className="gap-2"
-              aria-pressed={view === "card"}
-              aria-label="Ver em cards"
-            >
-              <LayoutGrid className="h-4 w-4" />
-              <span className="hidden sm:inline">Cards</span>
-            </Toggle>
-            <Toggle
-              pressed={view === "table"}
-              onPressedChange={(pressed) => {
-                if (pressed) setView("table");
-              }}
-              size="sm"
-              className="gap-2"
-              aria-pressed={view === "table"}
-              aria-label="Ver em lista"
-            >
-              <Rows className="h-4 w-4" />
-              <span className="hidden sm:inline">Lista</span>
-            </Toggle>
-          </div>
+          {cardsModuleEnabled ? (
+            <div className="inline-flex items-center gap-1 rounded-md border p-1">
+              <Toggle
+                pressed={view === "card"}
+                onPressedChange={(pressed) => {
+                  if (pressed) setView("card");
+                }}
+                size="sm"
+                className="gap-2"
+                aria-pressed={view === "card"}
+                aria-label="Ver em cards"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span className="hidden sm:inline">Cards</span>
+              </Toggle>
+              <Toggle
+                pressed={view === "table"}
+                onPressedChange={(pressed) => {
+                  if (pressed) setView("table");
+                }}
+                size="sm"
+                className="gap-2"
+                aria-pressed={view === "table"}
+                aria-label="Ver em lista"
+              >
+                <Rows className="h-4 w-4" />
+                <span className="hidden sm:inline">Lista</span>
+              </Toggle>
+            </div>
+          ) : (
+            <FeatureLock
+              title="Visualiza��o em cards"
+              description="Ative os cards de carteira atualizando para o plano Pro."
+              variant="inline"
+            />
+          )}
         </CardHeader>
         <CardContent>
           {state.portfolio.length === 0 ? (
@@ -910,6 +979,12 @@ const WalletManager = () => {
 };
 
 export default WalletManager;
+
+
+
+
+
+
 
 
 
