@@ -129,6 +129,16 @@ const WalletManager = () => {
   } = usePortfolio();
   const { toast } = useToast();
   const { flags, loading: featureFlagsLoading } = useFeatureFlags();
+  const isLoadingFlags = featureFlagsLoading;
+  const cardsModuleEnabled = flags.CARDS_MODULE;
+  const goalsEnabled = flags.GOALS;
+  const reportsEnabled = flags.REPORTS;
+  const exportsEnabled = flags.EXPORTS;
+  const cardsLocked = !cardsModuleEnabled && !isLoadingFlags;
+  const goalsLocked = !goalsEnabled && !isLoadingFlags;
+  const reportsLocked = !reportsEnabled && !isLoadingFlags;
+  const exportsLocked = !exportsEnabled && !isLoadingFlags;
+  const openFinanceLocked = !flags.OPEN_FINANCE && !isLoadingFlags;
   const [newItem, setNewItem] = useState<NewItemState>(defaultNewItem);
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") {
@@ -198,17 +208,6 @@ const WalletManager = () => {
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
-
-  const isLoadingFlags = featureFlagsLoading;
-  const cardsModuleEnabled = flags.CARDS_MODULE;
-  const goalsEnabled = flags.GOALS;
-  const reportsEnabled = flags.REPORTS;
-  const exportsEnabled = flags.EXPORTS;
-  const cardsLocked = !cardsModuleEnabled && !isLoadingFlags;
-  const goalsLocked = !goalsEnabled && !isLoadingFlags;
-  const reportsLocked = !reportsEnabled && !isLoadingFlags;
-  const exportsLocked = !exportsEnabled && !isLoadingFlags;
-  const openFinanceLocked = !flags.OPEN_FINANCE && !isLoadingFlags;
 
   const handleAddItem = () => {
     if (!newItem.symbol.trim()) {

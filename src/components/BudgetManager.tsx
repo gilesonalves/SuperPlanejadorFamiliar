@@ -130,6 +130,7 @@ const BudgetManager = () => {
   };
 
   return (
+    <>
     <div className="budget-root w-full space-y-6">
       <Card className="financial-card--budget">
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -523,6 +524,7 @@ const BudgetManager = () => {
         </Card>
       )}
     </div>
+    </>
   );
 };
 
