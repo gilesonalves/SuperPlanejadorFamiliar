@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,17 +12,31 @@ import {
   Trash2,
   TrendingUp,
   DollarSign,
-
   Download,
   RefreshCcw,
+  LayoutGrid,
+  Rows,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import ImportExport from "@/components/ImportExport";
+import EvolutionChart from "@/components/wallet/EvolutionChart";
+import PricesPanel from "@/components/wallet/PricesPanel";
+import SectorSummary from "@/components/wallet/SectorSummary";
+import AIHints from "@/components/wallet/AIHints";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage";
+import { cn } from "@/lib/utils";
+import type { PortfolioItem } from "@/hooks/usePortfolio";
+type Totals = {
+  valor: number;
+  dividendos: number;
+  fii: number;
+  acao: number;
+  crypto: number;
+};
 
 type NewItemState = {
-  assetClass: "FII" | "ACAO";
+  assetClass: "FII" | "ACAO" | "CRYPTO";
   symbol: string;
   name: string;
   sector: string;
@@ -40,6 +55,8 @@ const defaultNewItem: NewItemState = {
   monthlyYield: 0,
 };
 
+type ViewMode = "card" | "table";
+
 const presets = {
   FII: [
     { ticker: "MXRF11", nome: "Maxi Renda", setor: "Títulos/CRI" },
@@ -47,6 +64,15 @@ const presets = {
     { ticker: "KNRI11", nome: "Kinea Renda Imob.", setor: "Híbrido" },
     { ticker: "XPML11", nome: "XP Malls", setor: "Shoppings" },
     { ticker: "XPLG11", nome: "XP Log", setor: "Logística" },
+    { ticker: "VISC11", nome: "Vinci Shopping Centers", setor: "Shoppings" },
+    { ticker: "BTLG11", nome: "BTG Pactual Logística", setor: "Logística" },
+    { ticker: "HGRE11", nome: "CSHG Real Estate", setor: "Escritórios" },
+    { ticker: "HCTR11", nome: "Hectare CE", setor: "Papéis/CRI" },
+    { ticker: "BCFF11", nome: "BTG FOF", setor: "Fundo de Fundos" },
+    { ticker: "CPTS11", nome: "Capitânia Securities", setor: "Crédito" },
+    { ticker: "KNCR11", nome: "Kinea Rendimentos Imob.", setor: "Papéis/CRI" },
+    { ticker: "RECT11", nome: "REC Renda Imobiliária", setor: "Renda Urbana" },
+
   ],
   ACAO: [
     { ticker: "PETR4", nome: "Petrobras PN", setor: "Petróleo & Gás" },
@@ -54,8 +80,36 @@ const presets = {
     { ticker: "ITUB4", nome: "Itaú Unibanco PN", setor: "Bancos" },
     { ticker: "BBAS3", nome: "Banco do Brasil ON", setor: "Bancos" },
     { ticker: "WEGE3", nome: "WEG ON", setor: "Bens de Capital" },
+    { ticker: "B3SA3", nome: "B3 ON", setor: "Serviços Financeiros" },
+    { ticker: "ABEV3", nome: "Ambev ON", setor: "Bebidas/Consumo" },
+    { ticker: "MGLU3", nome: "Magazine Luiza ON", setor: "Varejo" },
+    { ticker: "LREN3", nome: "Lojas Renner ON", setor: "Varejo" },
+    { ticker: "EQTL3", nome: "Equatorial ON", setor: "Energia Elétrica" },
+    { ticker: "SUZB3", nome: "Suzano ON", setor: "Papel e Celulose" },
+    { ticker: "KLBN11", nome: "Klabin Unit", setor: "Papel e Celulose" },
+    { ticker: "GGBR4", nome: "Gerdau PN", setor: "Siderurgia" },
+    { ticker: "RADL3", nome: "Raia Drogasil ON", setor: "Saúde/Varejo" },
+    { ticker: "PRIO3", nome: "PRIO ON", setor: "Petróleo & Gás" },
+    { ticker: "TAEE11", nome: "Taesa Unit", setor: "Energia Elétrica" },
+    { ticker: "BBSE3", nome: "BB Seguridade ON", setor: "Seguros" },
   ],
-};
+
+  CRYPTO: [
+    { ticker: "BTC", nome: "Bitcoin", setor: "Layer-1" },
+    { ticker: "ETH", nome: "Ethereum", setor: "Smart Contracts" },
+    { ticker: "USDT", nome: "Tether", setor: "Stablecoin" },
+    { ticker: "USDC", nome: "USD Coin", setor: "Stablecoin" },
+    { ticker: "BNB", nome: "BNB", setor: "Exchange/Layer-1" },
+    { ticker: "SOL", nome: "Solana", setor: "Layer-1" },
+    { ticker: "XRP", nome: "Ripple", setor: "Pagamentos" },
+    { ticker: "ADA", nome: "Cardano", setor: "Layer-1" },
+    { ticker: "DOGE", nome: "Dogecoin", setor: "Meme/Payments" },
+    { ticker: "TON", nome: "Toncoin", setor: "Layer-1" },
+    { ticker: "TRX", nome: "Tron", setor: "Pagamentos/Layer-1" },
+    { ticker: "DOT", nome: "Polkadot", setor: "Interoperabilidade" },
+  ],
+} as const;
+
 
 const WalletManager = () => {
   const {
@@ -73,13 +127,30 @@ const WalletManager = () => {
   } = usePortfolio();
   const { toast } = useToast();
   const [newItem, setNewItem] = useState<NewItemState>(defaultNewItem);
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === "undefined") {
+      return "card";
+    }
+    const saved = localStorage.getItem("wallet:viewMode");
+    return saved === "table" ? "table" : "card";
+  });
+  useEffect(() => {
+    localStorage.setItem("wallet:viewMode", view);
+  }, [view]);
+  const tickerPlaceholder =
+    newItem.assetClass === "FII"
+      ? "Ex: MXRF11"
+      : newItem.assetClass === "ACAO"
+        ? "Ex: PETR4"
+        : "Ex: BTC";
 
-  const targetAllocation = state.settings.targetAllocation ?? { fii: 70, acao: 30 };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const targetAllocation = state.settings?.targetAllocation ?? { fii: 70, acao: 30, crypto: 0 };
   const contributionBudget = state.settings.contributionBudget ?? 0;
   const token = state.settings.brapiToken ?? "";
 
-  const totals = useMemo(() => {
-    return state.portfolio.reduce(
+  const totals = useMemo<Totals>(() => {
+    return state.portfolio.reduce<Totals>(
       (acc, item) => {
         const value = item.qty * (item.price ?? 0);
         const dividends = value * ((item.monthlyYield ?? 0) / 100);
@@ -87,30 +158,34 @@ const WalletManager = () => {
         acc.valor += value;
         acc.dividendos += dividends;
 
-        if (item.assetClass === "FII") {
-          acc.fii += value;
-        } else {
-          acc.acao += value;
-        }
+        if (item.assetClass === "FII") acc.fii += value;
+        else if (item.assetClass === "ACAO") acc.acao += value;
+        else if (item.assetClass === "CRYPTO") acc.crypto += value;
 
         return acc;
       },
-      { valor: 0, dividendos: 0, fii: 0, acao: 0 },
+      { valor: 0, dividendos: 0, fii: 0, acao: 0, crypto: 0 }
     );
   }, [state.portfolio]);
+
 
   const allocations = useMemo(() => {
     const value = totals.valor || 0;
     return {
       fiiPct: value > 0 ? (totals.fii / value) * 100 : 0,
       acaoPct: value > 0 ? (totals.acao / value) * 100 : 0,
+      cryptoPct: value > 0 ? (totals.crypto / value) * 100 : 0,
     };
   }, [totals]);
 
   const allocationGap = {
     fii: targetAllocation.fii - allocations.fiiPct,
     acao: targetAllocation.acao - allocations.acaoPct,
+    crypto: targetAllocation.crypto - allocations.cryptoPct,
   };
+
+
+
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -143,12 +218,18 @@ const WalletManager = () => {
     });
   };
 
-  const handleTargetChange = (key: "fii" | "acao", value: number) => {
-    const sanitized = Math.min(100, Math.max(0, value));
-    const next =
-      key === "fii"
-        ? { fii: sanitized, acao: 100 - sanitized }
-        : { fii: 100 - sanitized, acao: sanitized };
+  const clamp = (v: unknown, min = 0, max = 100) => {
+    const n = Number(v ?? 0);
+    if (!Number.isFinite(n)) return min;
+    return Math.min(max, Math.max(min, n));
+  };
+
+  const handleTargetChange = (key: "fii" | "acao" | "crypto", value: number) => {
+    const sanitized = clamp(value, 0, 100);
+    const next = {
+      ...targetAllocation,
+      [key]: sanitized,
+    };
     updateSettings({ targetAllocation: next });
   };
 
@@ -181,7 +262,7 @@ const WalletManager = () => {
       "Dividendo/Mês",
       "Valor Total",
     ];
-    const rows = state.portfolio.map((item) => {
+    const rows = state.portfolio.map((item: PortfolioItem) => {
       const value = item.qty * (item.price ?? 0);
       const dividends = value * ((item.monthlyYield ?? 0) / 100);
       return [
@@ -237,6 +318,26 @@ const WalletManager = () => {
     }
   };
 
+  const [draftBudget, setDraftBudget] = useState(String(contributionBudget ?? 0));
+  useEffect(() => { setDraftBudget(String(contributionBudget ?? 0)); }, [contributionBudget]);
+
+  const sumTargets = targetAllocation.fii + targetAllocation.acao + targetAllocation.crypto;
+  const remaining = 100 - sumTargets;
+  const sumIsOk = sumTargets === 100;
+  const [draftTargets, setDraftTargets] = useState({
+    fii: String(targetAllocation.fii ?? 0),
+    acao: String(targetAllocation.acao ?? 0),
+    crypto: String(targetAllocation.crypto ?? 0),
+  });
+
+  useEffect(() => {
+    setDraftTargets({
+      fii: String(targetAllocation.fii ?? 0),
+      acao: String(targetAllocation.acao ?? 0),
+      crypto: String(targetAllocation.crypto ?? 0),
+    });
+  }, [targetAllocation]);
+
   return (
     <div className="wallet-root w-full space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -277,19 +378,7 @@ const WalletManager = () => {
 
       {/* KPIs */}
       <div className="kpi-grid">
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Valor Total</div>
-            <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
-          </CardContent>
-        </Card>
 
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Dividendos/Mês</div>
-            <div className="kpi-value text-success">{formatCurrency(totals.dividendos)}</div>
-          </CardContent>
-        </Card>
 
         <Card className="kpi-card">
           <CardContent className="p-4">
@@ -320,6 +409,42 @@ const WalletManager = () => {
             </p>
           </CardContent>
         </Card>
+        <Card className="kpi-card">
+          <CardContent className="p-4">
+            <div className="kpi-label">Crypto</div>
+            <div className="kpi-value">
+              {allocations.cryptoPct.toFixed(1)}%
+              <span className="ml-2 text-sm text-muted-foreground">
+                ({formatCurrency(totals.crypto)})
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Diferença vs meta: {allocationGap.crypto.toFixed(1)}%
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="kpi-card">
+          <CardContent className="p-4">
+            <div className="kpi-label">Dividendos/Mês</div>
+            <div className="kpi-value text-success">{formatCurrency(totals.dividendos)}</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="kpi-card">
+        <CardContent className="p-4">
+          <div className="kpi-label">Valor Total</div>
+          <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
+        </CardContent>
+      </Card>
+
+      {/* Blocos analiticos */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <EvolutionChart />
+        <SectorSummary />
+        <PricesPanel />
+        <AIHints />
       </div>
 
       {/* Configurações */}
@@ -336,22 +461,27 @@ const WalletManager = () => {
             <div>
               <Label>Orçamento de Aporte (R$)</Label>
               <Input
-                type="number"
-                value={contributionBudget}
-                onChange={(event) => handleBudgetChange(Number(event.target.value) || 0)}
+                inputMode="decimal"
+                value={draftBudget}
+                onChange={(e) => setDraftBudget(e.target.value)}
+                onBlur={() => handleBudgetChange(Number(draftBudget) || 0)}
                 className="input-financial"
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* Metas (%) */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <Label>Meta FIIs (%)</Label>
                 <Input
                   type="number"
                   min="0"
                   max="100"
-                  value={targetAllocation.fii}
-                  onChange={(event) => handleTargetChange("fii", Number(event.target.value) || 0)}
+                  value={draftTargets.fii}
+                  onChange={(e) =>
+                    setDraftTargets((d) => ({ ...d, fii: e.target.value }))
+                  }
+                  onBlur={() => handleTargetChange("fii", Number(draftTargets.fii) || 0)}
                   className="input-financial"
                 />
               </div>
@@ -361,13 +491,33 @@ const WalletManager = () => {
                   type="number"
                   min="0"
                   max="100"
-                  value={targetAllocation.acao}
-                  onChange={(event) => handleTargetChange("acao", Number(event.target.value) || 0)}
+                  value={draftTargets.acao}
+                  onChange={(e) =>
+                    setDraftTargets((d) => ({ ...d, acao: e.target.value }))
+                  }
+                  onBlur={() => handleTargetChange("acao", Number(draftTargets.acao) || 0)}
+                  className="input-financial"
+                />
+              </div>
+              <div>
+                <Label>Meta Crypto (%)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={draftTargets.crypto}
+                  onChange={(e) =>
+                    setDraftTargets((d) => ({ ...d, crypto: e.target.value }))
+                  }
+                  onBlur={() => handleTargetChange("crypto", Number(draftTargets.crypto) || 0)}
                   className="input-financial"
                 />
               </div>
             </div>
 
+            <div className={cn("text-xs mt-1", sumIsOk ? "text-muted-foreground" : "text-amber-500")}>
+              Soma das metas: {sumTargets}% {remaining !== 0 && `(restante ${remaining > 0 ? "+" : ""}${remaining}%)`}
+            </div>
             <div>
               <Label>Token BRAPI (opcional)</Label>
               <Input
@@ -400,7 +550,9 @@ const WalletManager = () => {
                 <Label>Classe</Label>
                 <Select
                   value={newItem.assetClass}
-                  onValueChange={(value: "FII" | "ACAO") => setNewItem((prev) => ({ ...prev, assetClass: value }))}
+                  onValueChange={(value: "FII" | "ACAO" | "CRYPTO") =>
+                    setNewItem((prev) => ({ ...prev, assetClass: value }))
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione a classe" />
@@ -408,6 +560,7 @@ const WalletManager = () => {
                   <SelectContent>
                     <SelectItem value="FII">FII</SelectItem>
                     <SelectItem value="ACAO">Ação</SelectItem>
+                    <SelectItem value="CRYPTO">Crypto</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -417,7 +570,7 @@ const WalletManager = () => {
                 <Input
                   value={newItem.symbol}
                   onChange={(event) => setNewItem((prev) => ({ ...prev, symbol: event.target.value }))}
-                  placeholder="Ex: MXRF11"
+                  placeholder={tickerPlaceholder}
                   className="input-financial"
                 />
               </div>
@@ -426,11 +579,14 @@ const WalletManager = () => {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Nome</Label>
+
                 <Input
                   value={newItem.name}
-                  onChange={(event) => setNewItem((prev) => ({ ...prev, name: event.target.value }))}
+                  onChange={(e) => setNewItem((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Nome/descrição do ativo"
                   className="input-financial"
                 />
+
               </div>
 
               <div>
@@ -505,7 +661,7 @@ const WalletManager = () => {
 
       {/* Carteira */}
       <Card className="financial-card">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle className="flex items-center">
               <TrendingUp className="mr-2 h-5 w-5" />
@@ -514,6 +670,34 @@ const WalletManager = () => {
             <CardDescription>
               Total investido {formatCurrency(total)} | Dividendos mês {formatCurrency(totals.dividendos)}
             </CardDescription>
+          </div>
+          <div className="inline-flex items-center gap-1 rounded-md border p-1">
+            <Toggle
+              pressed={view === "card"}
+              onPressedChange={(pressed) => {
+                if (pressed) setView("card");
+              }}
+              size="sm"
+              className="gap-2"
+              aria-pressed={view === "card"}
+              aria-label="Ver em cards"
+            >
+              <LayoutGrid className="h-4 w-4" />
+              <span className="hidden sm:inline">Cards</span>
+            </Toggle>
+            <Toggle
+              pressed={view === "table"}
+              onPressedChange={(pressed) => {
+                if (pressed) setView("table");
+              }}
+              size="sm"
+              className="gap-2"
+              aria-pressed={view === "table"}
+              aria-label="Ver em lista"
+            >
+              <Rows className="h-4 w-4" />
+              <span className="hidden sm:inline">Lista</span>
+            </Toggle>
           </div>
         </CardHeader>
         <CardContent>
@@ -525,193 +709,198 @@ const WalletManager = () => {
             </div>
           ) : (
             <>
-              <div className="wallet-asset-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {state.portfolio.map((item) => {
-                  const value = item.qty * (item.price ?? 0);
-                  const dividends = value * ((item.monthlyYield ?? 0) / 100);
+              {view === "card" && (
+                <div className="wallet-asset-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {state.portfolio.map((item) => {
+                    const value = item.qty * (item.price ?? 0);
+                    const dividends = value * ((item.monthlyYield ?? 0) / 100);
 
-                  return (
-                    <Card key={item.id} className="wallet-asset-card h-auto">
-                      <CardHeader className="wallet-asset-card__header flex flex-col items-start gap-2">
-                        <div className="flex w-full items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
-                              {item.assetClass ?? "-"}
-                            </Badge>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold leading-tight">{item.symbol}</p>
-                              <p className="text-xs text-muted-foreground break-words">{item.name ?? "-"}</p>
+                    return (
+                      <Card key={item.id} className="wallet-asset-card h-auto">
+                        <CardHeader className="wallet-asset-card__header flex flex-col items-start gap-2">
+                          <div className="flex w-full items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
+                                {item.assetClass ?? "-"}
+                              </Badge>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold leading-tight">{item.symbol}</p>
+                                <p className="text-xs text-muted-foreground break-words">{item.name ?? "-"}</p>
+                              </div>
                             </div>
-                          </div>
-                          <span className="text-sm font-semibold text-muted-foreground">
-                            {formatCurrency(value)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground break-words">
-                          {item.sector || "Nao informado"}
-                        </p>
-                      </CardHeader>
-                      <CardContent className="wallet-asset-card__body space-y-3 pt-0">
-                        <div className="wallet-asset-fields flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                          <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground">Qtd</span>
-                            <Input
-                              type="number"
-                              value={item.qty}
-                              onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
-                              className="w-full min-w-0 text-right text-sm"
-                            />
-                          </div>
-                          <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground">Preco (R$)</span>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.price ?? 0}
-                              onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
-                              className="w-full min-w-0 text-right text-sm"
-                            />
-                          </div>
-                          <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground">DY Mensal (%)</span>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.monthlyYield ?? 0}
-                              onChange={(event) =>
-                                updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
-                              }
-                              className="w-full min-w-0 text-right text-sm"
-                            />
-                          </div>
-                          <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                            <span className="text-xs text-muted-foreground">Setor</span>
-                            <span className="min-w-0 break-words text-sm font-medium">
-                              {item.sector || "Nao informado"}
+                            <span className="text-sm font-semibold text-muted-foreground">
+                              {formatCurrency(value)}
                             </span>
                           </div>
-                        </div>
-                        <div className="wallet-asset-summary flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <span className="text-sm text-muted-foreground">
-                            Dividendos/mes:
-                            <span className="ml-1 font-semibold text-success">{formatCurrency(dividends)}</span>
-                          </span>
-                          <span className="text-sm text-muted-foreground">
-                            Valor total:
-                            <span className="ml-1 font-semibold">{formatCurrency(value)}</span>
-                          </span>
-                        </div>
-                      </CardContent>
-                      <CardFooter className="wallet-asset-card__footer flex flex-wrap gap-2 pt-0">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => refreshTicker(item.symbol)}
-                          disabled={loading}
-                        >
-                          Atualizar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => removeItem(item.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          Remover
-                        </Button>
-                      </CardFooter>
-                    </Card>
-                  );
-                })}
-              </div>
-              <div className="wallet-table-wrapper overflow-x-auto mt-6">
-                <table className="data-table min-w-[640px]">
-                  <thead>
-                    <tr>
-                      <th>Classe</th>
-                      <th>Ticker</th>
-                      <th>Nome</th>
-                      <th>Setor</th>
-                      <th>Qtd</th>
-                      <th>Preco</th>
-                      <th>DY Mensal</th>
-                      <th>Div/Mes</th>
-                      <th>Valor Total</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {state.portfolio.map((item) => {
-                      const value = item.qty * (item.price ?? 0);
-                      const dividends = value * ((item.monthlyYield ?? 0) / 100);
-                      return (
-                        <tr key={item.id}>
-                          <td>
-                            <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
-                              {item.assetClass ?? "-"}
-                            </Badge>
-                          </td>
-                          <td className="font-mono font-semibold">{item.symbol}</td>
-                          <td className="max-w-[160px] break-words">{item.name ?? "-"}</td>
-                          <td className="max-w-[160px] break-words">{item.sector ?? "-"}</td>
-                          <td>
-                            <Input
-                              type="number"
-                              value={item.qty}
-                              onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
-                              className="text-xs text-right"
-                            />
-                          </td>
-                          <td>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.price ?? 0}
-                              onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
-                              className="text-xs text-right"
-                            />
-                          </td>
-                          <td>
-                            <Input
-                              type="number"
-                              step="0.01"
-                              value={item.monthlyYield ?? 0}
-                              onChange={(event) =>
-                                updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
-                              }
-                              className="text-xs text-right"
-                            />
-                          </td>
-                          <td className="font-medium text-success">{formatCurrency(dividends)}</td>
-                          <td className="font-medium">{formatCurrency(value)}</td>
-                          <td>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => refreshTicker(item.symbol)}
-                                className="px-2"
-                                disabled={loading}
-                                title={`Atualizar ${item.symbol}`}
-                              >
-                                Atualizar
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeItem(item.id)}
-                                className="p-0 text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                          <p className="text-xs text-muted-foreground break-words">
+                            {item.sector || "Nao informado"}
+                          </p>
+                        </CardHeader>
+                        <CardContent className="wallet-asset-card__body space-y-3 pt-0">
+                          <div className="wallet-asset-fields flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Qtd</span>
+                              <Input
+                                type="number"
+                                value={item.qty}
+                                onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
+                                className="w-full min-w-0 text-right text-sm"
+                              />
                             </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Preco (R$)</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.price ?? 0}
+                                onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
+                                className="w-full min-w-0 text-right text-sm"
+                              />
+                            </div>
+                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">DY Mensal (%)</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.monthlyYield ?? 0}
+                                onChange={(event) =>
+                                  updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
+                                }
+                                className="w-full min-w-0 text-right text-sm"
+                              />
+                            </div>
+                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                              <span className="text-xs text-muted-foreground">Setor</span>
+                              <span className="min-w-0 break-words text-sm font-medium">
+                                {item.sector || "Nao informado"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="wallet-asset-summary flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm text-muted-foreground">
+                              Dividendos/mes:
+                              <span className="ml-1 font-semibold text-success">{formatCurrency(dividends)}</span>
+                            </span>
+                            <span className="text-sm text-muted-foreground">
+                              Valor total:
+                              <span className="ml-1 font-semibold">{formatCurrency(value)}</span>
+                            </span>
+                          </div>
+                        </CardContent>
+                        <CardFooter className="wallet-asset-card__footer flex flex-wrap gap-2 pt-0">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => refreshTicker(item.symbol)}
+                            disabled={loading}
+                          >
+                            Atualizar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeItem(item.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            Remover
+                          </Button>
+                        </CardFooter>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+
+              {view === "table" && (
+                <div className="wallet-table-wrapper overflow-x-auto mt-6">
+                  <table className="data-table min-w-[720px]">
+                    <thead>
+                      <tr>
+                        <th>Classe</th>
+                        <th>Ticker</th>
+                        <th>Nome</th>
+                        <th>Setor</th>
+                        <th>Qtd</th>
+                        <th>Preco</th>
+                        <th>DY Mensal</th>
+                        <th>Div/Mes</th>
+                        <th>Valor Total</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.portfolio.map((item: PortfolioItem) => {
+                        const value = item.qty * (item.price ?? 0);
+                        const dividends = value * ((item.monthlyYield ?? 0) / 100);
+                        return (
+                          <tr key={item.id}>
+                            <td>
+                              <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
+                                {item.assetClass ?? "-"}
+                              </Badge>
+                            </td>
+                            <td className="font-mono font-semibold">{item.symbol}</td>
+                            <td className="max-w-[160px] break-words">{item.name ?? "-"}</td>
+                            <td className="max-w-[160px] break-words">{item.sector ?? "-"}</td>
+                            <td>
+                              <Input
+                                type="number"
+                                value={item.qty}
+                                onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
+                                className="text-xs text-right"
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.price ?? 0}
+                                onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
+                                className="text-xs text-right"
+                              />
+                            </td>
+                            <td>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={item.monthlyYield ?? 0}
+                                onChange={(event) =>
+                                  updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
+                                }
+                                className="text-xs text-right"
+                              />
+                            </td>
+                            <td className="font-medium text-success">{formatCurrency(dividends)}</td>
+                            <td className="font-medium">{formatCurrency(value)}</td>
+                            <td>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => refreshTicker(item.symbol)}
+                                  className="px-2"
+                                  disabled={loading}
+                                  title={`Atualizar ${item.symbol}`}
+                                >
+                                  Atualizar
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => removeItem(item.id)}
+                                  className="p-0 text-destructive hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </CardContent>
