@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { loadLocal, saveLocal, subscribeLocal } from "@/services/storage";
+import {
+  loadLocal,
+  saveLocal,
+  subscribeLocal,
+  upsertTodayHistory,
+  getCachedDailyQuote,
+  setCachedDailyQuote,
+  type AppState as StoreAppState,
+} from "@/services/storage";
 import { fetchQuoteSingle, fetchQuotesBatch, fetchQuotesSequential } from "@/services/brapi";
 
 export type AssetClass = "FII" | "ACAO" | "CRYPTO";
@@ -16,9 +24,6 @@ export type PortfolioItem = {
 };
 
 export type Targets = { fii: number; acao: number; crypto: number };
-
-// Estado vindo do storage (nao traga tipos do hook para o storage p/ evitar ciclo)
-import type { AppState as StoreAppState } from "@/services/storage";
 
 // Estado usado **dentro** do hook com portfolio tipado
 type AppState = Omit<StoreAppState, "portfolio"> & { portfolio: PortfolioItem[] };
@@ -179,6 +184,9 @@ export function usePortfolio() {
         portfolio: prev.portfolio.map((it, index) => {
           const q = map.get(it.symbol);
           if (!q) return it;
+          try {
+            setCachedDailyQuote(it.symbol, q);
+          } catch { /* empty */ }
 
           return normalizePortfolioItem(
             {
@@ -202,11 +210,35 @@ export function usePortfolio() {
     async (symbol: string) => {
       if (!symbol) return;
 
+      const cached = getCachedDailyQuote(symbol);
+      if (cached) {
+        setState((prev) => ({
+          ...prev,
+          portfolio: prev.portfolio.map((item, index) => {
+            if (item.symbol !== symbol) return item;
+            const q = cached as Quote;
+            return normalizePortfolioItem(
+              {
+                ...item,
+                price: q?.regularMarketPrice ?? item.price,
+                name: q?.longName ?? q?.shortName ?? item.name,
+                sector: q?.sector ?? item.sector,
+              },
+              index,
+            );
+          }),
+        }));
+        return;
+      }
+
       try {
         setLoading(true);
         setError(null);
 
         const q = await fetchQuoteSingle(symbol, state.settings.brapiToken);
+        try {
+          if (q) setCachedDailyQuote(symbol, q);
+        } catch { /* empty */ }
 
         setState((prev) => ({
           ...prev,
@@ -253,6 +285,9 @@ export function usePortfolio() {
         portfolio: prev.portfolio.map((it, index) => {
           const q = map.get(it.symbol);
           if (!q) return it;
+          try {
+            setCachedDailyQuote(it.symbol, q);
+          } catch { /* empty */ }
           return normalizePortfolioItem(
             {
               ...it,
@@ -275,6 +310,10 @@ export function usePortfolio() {
     () => state.portfolio.reduce((acc, it) => acc + (Number(it.qty) || 0) * (Number(it.price) || 0), 0),
     [state.portfolio],
   );
+
+  useEffect(() => {
+    try { upsertTodayHistory(total); } catch { /* empty */ }
+  }, [total]);
 
   return {
     state,

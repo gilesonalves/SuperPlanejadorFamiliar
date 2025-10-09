@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/select";
 import { useState } from "react";
 import { useShoppingStore } from "@/contexts/ShoppingContext";
-import type { Unit, ShoppingItem } from "@/services/shopping/types";
+import type { ShoppingItem } from "@/services/shopping/types";
+
+// Define Unit type locally if not exported from types
+type Unit = "un" | "kg" | "g" | "ml" | "l" | "pct" | "cx";
 
 const UNITS: Unit[] = ["un", "kg", "g", "ml", "l", "pct", "cx"];
 const CATEGORIAS = [

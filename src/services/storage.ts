@@ -94,3 +94,57 @@ export function subscribeLocal(cb: Listener): () => void {
 export function notifyLocalChange() {
   for (const cb of listeners) cb();
 }
+
+
+// === Wallet history (time series do valor total) ===
+export type HistoryPoint = { date: string; total: number };
+
+const HISTORY_KEY = "walletHistory_v1";
+export function loadHistory(): HistoryPoint[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(arr)) return arr.filter(p => p && typeof p.total === "number" && typeof p.date === "string");
+    return [];
+  } catch { return []; }
+}
+export function saveHistory(points: HistoryPoint[]) {
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(points)); } catch { /* empty */ }
+}
+export function upsertTodayHistory(total: number) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const key = today.toISOString().slice(0,10);
+  const hist = loadHistory();
+  const i = hist.findIndex(p => p.date === key);
+  if (i >= 0) hist[i] = { date: key, total };
+  else hist.push({ date: key, total });
+  saveHistory(hist);
+}
+
+// === Cache diario de cotacoes ===
+type QuoteCacheEntry = { symbol: string; date: string; payload: unknown };
+const QUOTE_CACHE_KEY = "quoteCache_v1";
+function loadQuoteCache(): QuoteCacheEntry[] {
+  try { const j = localStorage.getItem(QUOTE_CACHE_KEY); return j ? JSON.parse(j) : []; }
+  catch { return []; }
+}
+function saveQuoteCache(arr: QuoteCacheEntry[]) {
+  try { localStorage.setItem(QUOTE_CACHE_KEY, JSON.stringify(arr)); } catch { /* empty */ }
+}
+export function getCachedDailyQuote(symbol: string): unknown | null {
+  const dateKey = new Date().toISOString().slice(0,10);
+  const cache = loadQuoteCache();
+  const hit = cache.find(e => e.symbol === symbol && e.date === dateKey);
+  return hit ? hit.payload : null;
+}
+export function setCachedDailyQuote(symbol: string, payload: unknown) {
+  const dateKey = new Date().toISOString().slice(0,10);
+  const cache = loadQuoteCache();
+  const idx = cache.findIndex(e => e.symbol === symbol && e.date === dateKey);
+  if (idx >= 0) cache[idx] = { symbol, date: dateKey, payload };
+  else cache.push({ symbol, date: dateKey, payload });
+  // Limpeza simples: mantem so 400 itens
+  if (cache.length > 400) cache.splice(0, cache.length - 400);
+  saveQuoteCache(cache);
+}
+

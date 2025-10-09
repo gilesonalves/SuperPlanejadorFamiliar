@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import ImportExport from "@/components/ImportExport";
+import EvolutionChart from "@/components/wallet/EvolutionChart";
+import PricesPanel from "@/components/wallet/PricesPanel";
+import SectorSummary from "@/components/wallet/SectorSummary";
+import AIHints from "@/components/wallet/AIHints";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage";
 import { cn } from "@/lib/utils";
@@ -140,6 +144,7 @@ const WalletManager = () => {
         ? "Ex: PETR4"
         : "Ex: BTC";
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const targetAllocation = state.settings?.targetAllocation ?? { fii: 70, acao: 30, crypto: 0 };
   const contributionBudget = state.settings.contributionBudget ?? 0;
   const token = state.settings.brapiToken ?? "";
@@ -428,11 +433,19 @@ const WalletManager = () => {
       </div>
 
       <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Valor Total</div>
-            <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
-          </CardContent>
-        </Card>
+        <CardContent className="p-4">
+          <div className="kpi-label">Valor Total</div>
+          <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
+        </CardContent>
+      </Card>
+
+      {/* Blocos analiticos */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <EvolutionChart />
+        <SectorSummary />
+        <PricesPanel />
+        <AIHints />
+      </div>
 
       {/* Configurações */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
