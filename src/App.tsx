@@ -3,7 +3,7 @@ import { Navigate, createBrowserRouter, RouterProvider } from "react-router-dom"
 import AppShell from "@/components/layout/AppShell";
 import RequireAuth from "@/routes/RequireAuth";
 import Shopping from "@/pages/Shopping";
-
+import Pricing from "@/pages/Pricing";
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 import ForgotPassword from "@/pages/auth/ForgotPassword";
@@ -15,6 +15,7 @@ import Dashboard from "./components/Dashboard";
 const router = createBrowserRouter([
   // públicas
   { path: "/login", element: <Login /> },
+  { path: "/pricing", element: <Pricing /> },
   { path: "/register", element: <Register /> },
   { path: "/forgot", element: <ForgotPassword /> },
 

@@ -7,6 +7,7 @@ import {
   Wallet,
   Calculator,
   ShoppingBasket,
+  Crown,
   User,
   LogOut,
 } from "lucide-react";
@@ -24,6 +25,7 @@ const navItems = [
   { to: "/wallet", label: "Carteira", icon: Wallet },
   { to: "/budget", label: "Orçamento", icon: Calculator },
   { to: "/shopping", label: "Lista de Compras", icon: ShoppingBasket },
+  { to: "/pricing", label: "Planos", icon: Crown },
 ] as const;
 
 
