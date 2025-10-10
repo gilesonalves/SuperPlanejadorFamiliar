@@ -1,195 +1,298 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 export const config = {
-  api: {
-    bodyParser: false,
-  },
+  api: { bodyParser: false },
 };
 
-const stripeSecretKey = process.env.STRIPE_SECRET_KEY ?? "";
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
-const supabaseUrl = process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
-const supabaseServiceRole = process.env.SUPABASE_SERVICE_ROLE ?? "";
+type InvoiceWithSub = Stripe.Invoice & {
+  subscription?: string | Stripe.Subscription | null;
+};
 
-const toIso = (epochSeconds?: number | null): string | null =>
-  typeof epochSeconds === "number" ? new Date(epochSeconds * 1000).toISOString() : null;
+type LineWithPrice = Stripe.InvoiceLineItem & {
+  price?: Stripe.Price | null;
+};
 
-const readRawBody = async (req: VercelRequest): Promise<Buffer> => {
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+const SUPABASE_URL =
+  process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE ?? "";
+
+const stripe = new Stripe(STRIPE_SECRET_KEY);
+
+const toIso = (epoch?: number | null): string | null =>
+  typeof epoch === "number" ? new Date(epoch * 1000).toISOString() : null;
+
+async function readRawBody(req: VercelRequest): Promise<Buffer> {
   const chunks: Uint8Array[] = [];
   for await (const chunk of req) {
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
   }
   return Buffer.concat(chunks);
-};
+}
 
-const persistEvent = async (
-  supabaseAdmin: ReturnType<typeof createClient>,
-  event: Stripe.Event,
-) => {
-  await supabaseAdmin.from("billing_events").insert({
-    event_id: event.id,
-    type: event.type,
-    payload: event.data?.object ?? null,
-    created_at: new Date().toISOString(),
+/** === PERSISTÊNCIA ALINHADA AO SCHEMA CRIADO === **/
+
+function getCurrentPeriodEnd(
+  sub: Stripe.Subscription | null | undefined
+): number | undefined {
+  const s = sub as unknown as { current_period_end?: number | null };
+  return typeof s?.current_period_end === "number" ? s.current_period_end : undefined;
+}
+
+async function persistEvent(
+  supa: SupabaseClient,
+  event: Stripe.Event
+): Promise<void> {
+  // Tabela: billing_events(provider, event_type, raw, created_at)
+  await supa.from("billing_events").insert({
+    provider: "stripe",
+    event_type: event.type,
+    raw: event as unknown as Record<string, unknown>, // jsonb
   });
+}
+
+type UpsertSubscriptionOverrides = {
+  user_id?: string | null;
+  plan_id?: string | null;
+  status?: string;
+  current_period_end?: string | null;
+  provider_sub_id?: string; // id da assinatura na Stripe
 };
 
-const upsertSubscription = async (
-  supabaseAdmin: ReturnType<typeof createClient>,
-  stripeSubscription: Stripe.Subscription | null,
-  overrides: {
-    subscription_id?: string;
-    user_id?: string | null;
-    plan_id?: string | null;
-    status?: string;
-    current_period_end?: string | null;
-  },
-) => {
-  const payload = {
-    subscription_id: overrides.subscription_id ?? stripeSubscription?.id,
-    user_id: overrides.user_id ?? (stripeSubscription?.metadata?.user_id ?? null),
-    plan_id: overrides.plan_id ?? (stripeSubscription?.metadata?.plan_id ?? null),
-    status: overrides.status ?? stripeSubscription?.status ?? null,
-    current_period_end:
-      overrides.current_period_end ??
-      toIso(stripeSubscription?.current_period_end ?? null),
-  };
+async function upsertSubscription(
+  supa: SupabaseClient,
+  overrides: UpsertSubscriptionOverrides
+): Promise<void> {
+  if (!overrides.provider_sub_id) return;
 
-  if (!payload.subscription_id) return;
+  // subscriptions(user_id, plan_id, provider, provider_sub_id, status, current_period_end)
+  await supa
+    .from("subscriptions")
+    .upsert(
+      {
+        user_id: overrides.user_id ?? null,
+        plan_id: overrides.plan_id ?? null,
+        provider: "stripe",
+        provider_sub_id: overrides.provider_sub_id,
+        status: overrides.status ?? "active",
+        current_period_end: overrides.current_period_end ?? null,
+      },
+      { onConflict: "provider_sub_id" }
+    );
+}
 
-  await supabaseAdmin.from("subscriptions").upsert(payload, {
-    onConflict: "subscription_id",
-  });
-};
-
-const insertInvoice = async (
-  supabaseAdmin: ReturnType<typeof createClient>,
+async function insertInvoice(
+  supa: SupabaseClient,
   invoice: Stripe.Invoice,
-) => {
-  await supabaseAdmin.from("invoices").upsert(
-    {
-      invoice_id: invoice.id,
-      subscription_id: (invoice.subscription as string) ?? null,
-      user_id: invoice.metadata?.user_id ?? null,
-      plan_id: invoice.metadata?.plan_id ?? invoice.lines?.data[0]?.price?.metadata?.plan_id ?? null,
-      status: invoice.status,
-      total: invoice.total,
-      currency: invoice.currency,
-      hosted_invoice_url: invoice.hosted_invoice_url,
-      due_date: toIso(invoice.due_date ?? null),
-      created_at: toIso(invoice.created ?? null),
-    },
-    { onConflict: "invoice_id" },
-  );
-};
+  userIdFallback: string | null,
+  planIdFallback: string | null
+): Promise<void> {
+  // invoices(provider, provider_invoice_id, user_id, amount_cents, currency, status, issued_at, pdf_url)
+  const amountCents =
+    (typeof invoice.amount_paid === "number" ? invoice.amount_paid : null) ??
+    (typeof invoice.total === "number" ? invoice.total : 0);
 
-const retrieveSubscription = async (stripeClient: Stripe, subscriptionId?: string | null) => {
+  await supa.from("invoices").insert({
+    provider: "stripe",
+    provider_invoice_id: invoice.id,
+    user_id: (invoice.metadata?.user_id as string) ?? userIdFallback,
+    amount_cents: amountCents,
+    currency: (invoice.currency ?? "brl").toUpperCase(),
+    status: invoice.status ?? "paid",
+    issued_at: toIso(invoice.created) ?? new Date().toISOString(),
+    pdf_url: invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null,
+  });
+}
+
+async function retrieveSubscription(
+  subscriptionId?: string | null
+): Promise<Stripe.Subscription | null> {
   if (!subscriptionId) return null;
   try {
-    return await stripeClient.subscriptions.retrieve(subscriptionId);
-  } catch (error) {
-    console.error("Stripe subscription retrieve error", error);
+    return await stripe.subscriptions.retrieve(subscriptionId);
+  } catch (e) {
+    console.error("Stripe subscription retrieve error", e);
     return null;
   }
-};
+}
+
+/** === HANDLER === **/
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
-  }
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  if (!stripeSecretKey || !webhookSecret) {
+  if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET)
     return res.status(500).json({ error: "Stripe webhook secrets missing" });
-  }
 
-  if (!supabaseUrl || !supabaseServiceRole) {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)
     return res.status(500).json({ error: "Supabase admin credentials missing" });
-  }
 
   const rawBody = await readRawBody(req);
   const signature = req.headers["stripe-signature"];
-  if (typeof signature !== "string") {
+  if (typeof signature !== "string")
     return res.status(400).json({ error: "Missing Stripe signature" });
-  }
 
-  const stripeClient = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" });
-  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRole);
+  const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE);
 
   let event: Stripe.Event;
   try {
-    event = stripeClient.webhooks.constructEvent(rawBody, signature, webhookSecret);
-  } catch (error) {
-    console.error("Stripe webhook signature verification failed", error);
+    event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      STRIPE_WEBHOOK_SECRET
+    );
+  } catch (e) {
+    console.error("Stripe webhook signature verification failed", e);
     return res.status(400).json({ error: "Invalid signature" });
   }
 
-  await persistEvent(supabaseAdmin, event);
+  await persistEvent(supa, event);
 
   try {
     switch (event.type) {
       case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const subscription = await retrieveSubscription(
-          stripeClient,
-          session.subscription as string,
-        );
-        await upsertSubscription(supabaseAdmin, subscription, {
-          subscription_id: (session.subscription as string) ?? undefined,
-          user_id: session.client_reference_id ?? session.metadata?.user_id ?? null,
-          plan_id: session.metadata?.plan_id ?? subscription?.metadata?.plan_id ?? null,
+        const s = event.data.object as Stripe.Checkout.Session;
+        const subscriptionId = (s.subscription as string) ?? null;
+        const subscription = await retrieveSubscription(subscriptionId);
+
+        const userId =
+          (s.client_reference_id as string) ??
+          (s.metadata?.user_id as string) ??
+          (subscription?.metadata?.user_id as string) ??
+          null;
+
+        const planId =
+          (s.metadata?.plan_id as string) ??
+          (subscription?.metadata?.plan_id as string) ??
+          null;
+
+        await upsertSubscription(supa, {
+          provider_sub_id: subscriptionId ?? undefined,
+          user_id: userId,
+          plan_id: planId,
           status: "active",
+          current_period_end: toIso(getCurrentPeriodEnd(subscription) ?? null),
         });
         break;
       }
 
       case "invoice.paid": {
-        const invoice = event.data.object as Stripe.Invoice;
-        const subscription = await retrieveSubscription(
-          stripeClient,
-          invoice.subscription as string,
-        );
-        await upsertSubscription(supabaseAdmin, subscription, {
-          subscription_id: (invoice.subscription as string) ?? undefined,
+        const inv = event.data.object as InvoiceWithSub;
+
+        // subscriptionId pode vir string, objeto, ou null
+        const subscriptionId =
+          typeof inv.subscription === "string"
+            ? inv.subscription
+            : inv.subscription?.id ?? null;
+
+        const subscription = await retrieveSubscription(subscriptionId);
+
+        // primeira linha da fatura, tipada com price
+        const firstLine: LineWithPrice | undefined = inv.lines?.data?.[0] as LineWithPrice | undefined;
+        const linePrice: Stripe.Price | null | undefined = firstLine?.price ?? undefined;
+
+        // user_id pode vir do metadata da invoice ou da subscription
+        const userId =
+          (inv.metadata?.user_id as string | undefined) ??
+          (subscription?.metadata?.user_id as string | undefined) ??
+          null;
+
+        // plan_id do metadata da invoice, da subscription, ou do price da linha
+        const planId =
+          (inv.metadata?.plan_id as string | undefined) ??
+          (subscription?.metadata?.plan_id as string | undefined) ??
+          (linePrice?.metadata?.plan_id as string | undefined) ??
+          null;
+
+        await upsertSubscription(supa, {
+          provider_sub_id: subscriptionId ?? undefined,
+          user_id: userId,
+          plan_id: planId,
           status: "active",
-          current_period_end: toIso(subscription?.current_period_end ?? invoice.lines?.data[0]?.period?.end ?? null),
+          current_period_end: toIso(
+            getCurrentPeriodEnd(subscription) ??
+            (firstLine?.period?.end as number | undefined) ??
+            (inv.period_end as number | undefined) ??
+            null
+          ),
         });
-        await insertInvoice(supabaseAdmin, invoice);
+
+        await insertInvoice(supa, inv, userId, planId);
         break;
       }
+
+
 
       case "invoice.payment_failed": {
-        const invoice = event.data.object as Stripe.Invoice;
-        const subscription = await retrieveSubscription(
-          stripeClient,
-          invoice.subscription as string,
-        );
-        await upsertSubscription(supabaseAdmin, subscription, {
-          subscription_id: (invoice.subscription as string) ?? undefined,
+        const inv = event.data.object as InvoiceWithSub;
+
+        const subscriptionId =
+          typeof inv.subscription === "string"
+            ? inv.subscription
+            : inv.subscription?.id ?? null;
+
+        // PEGUE a assinatura (FALTAVA ESTA LINHA)
+        const subscription = await retrieveSubscription(subscriptionId);
+
+        const firstLine: LineWithPrice | undefined =
+          inv.lines?.data?.[0] as LineWithPrice | undefined;
+        const linePrice: Stripe.Price | null | undefined = firstLine?.price ?? undefined;
+
+        const userId =
+          (inv.metadata?.user_id as string | undefined) ??
+          (subscription?.metadata?.user_id as string | undefined) ??
+          null;
+
+        const planId =
+          (inv.metadata?.plan_id as string | undefined) ??
+          (subscription?.metadata?.plan_id as string | undefined) ??
+          (linePrice?.metadata?.plan_id as string | undefined) ??
+          null;
+
+        await upsertSubscription(supa, {
+          provider_sub_id: subscriptionId ?? undefined,
+          user_id: userId,
+          plan_id: planId,
           status: "past_due",
+          // 👇 cast leve para satisfazer o TS
+          current_period_end: toIso(getCurrentPeriodEnd(subscription) ?? null),
         });
-        await insertInvoice(supabaseAdmin, invoice);
+
+        await insertInvoice(supa, inv, userId, planId);
         break;
       }
 
+
+
+
       case "customer.subscription.deleted": {
-        const subscription = event.data.object as Stripe.Subscription;
-        await upsertSubscription(supabaseAdmin, subscription, {
-          subscription_id: subscription.id,
+        const sub = event.data.object as Stripe.Subscription;
+        const userId = (sub.metadata?.user_id as string) ?? null;
+        const planId = (sub.metadata?.plan_id as string) ?? null;
+
+        await upsertSubscription(supa, {
+          provider_sub_id: sub.id,
+          user_id: userId,
+          plan_id: planId,
           status: "canceled",
+          current_period_end: toIso(getCurrentPeriodEnd(sub) ?? null),
         });
         break;
       }
 
       default:
-        // noop for unhandled events
+        // ignore outros eventos
         break;
     }
-  } catch (error) {
-    console.error("Billing webhook handler failed", error);
+  } catch (e) {
+    console.error("Billing webhook handler failed", e);
     return res.status(500).json({ error: "Webhook handling failure" });
   }
 
   return res.status(200).json({ received: true });
 }
+
+
