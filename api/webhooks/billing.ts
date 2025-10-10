@@ -1,27 +1,26 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Stripe from "stripe";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export const config = {
-  api: { bodyParser: false },
-};
+export const config = { api: { bodyParser: false } };
 
+/* Tipos auxiliares para deixar o TS feliz sem any */
 type InvoiceWithSub = Stripe.Invoice & {
   subscription?: string | Stripe.Subscription | null;
 };
+type LineWithPrice = Stripe.InvoiceLineItem & { price?: Stripe.Price | null };
 
-type LineWithPrice = Stripe.InvoiceLineItem & {
-  price?: Stripe.Price | null;
-};
-
+/* Env */
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET ?? "";
 const SUPABASE_URL =
   process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? "";
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE ?? "";
 
+/* Stripe client (sem apiVersion fixa para evitar conflitos de typings) */
 const stripe = new Stripe(STRIPE_SECRET_KEY);
 
+/* Utils */
 const toIso = (epoch?: number | null): string | null =>
   typeof epoch === "number" ? new Date(epoch * 1000).toISOString() : null;
 
@@ -33,20 +32,17 @@ async function readRawBody(req: VercelRequest): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-/** === PERSISTÊNCIA ALINHADA AO SCHEMA CRIADO === **/
-
 function getCurrentPeriodEnd(
-  sub: Stripe.Subscription | null | undefined
+  sub: Stripe.Subscription | null | undefined,
 ): number | undefined {
   const s = sub as unknown as { current_period_end?: number | null };
-  return typeof s?.current_period_end === "number" ? s.current_period_end : undefined;
+  return typeof s?.current_period_end === "number"
+    ? s.current_period_end
+    : undefined;
 }
 
-async function persistEvent(
-  supa: SupabaseClient,
-  event: Stripe.Event
-): Promise<void> {
-  // Tabela: billing_events(provider, event_type, raw, created_at)
+/* Persistência */
+async function persistEvent(supa: SupabaseClient, event: Stripe.Event) {
   await supa.from("billing_events").insert({
     provider: "stripe",
     event_type: event.type,
@@ -59,16 +55,15 @@ type UpsertSubscriptionOverrides = {
   plan_id?: string | null;
   status?: string;
   current_period_end?: string | null;
-  provider_sub_id?: string; // id da assinatura na Stripe
+  provider_sub_id?: string;
 };
 
 async function upsertSubscription(
   supa: SupabaseClient,
-  overrides: UpsertSubscriptionOverrides
-): Promise<void> {
+  overrides: UpsertSubscriptionOverrides,
+) {
   if (!overrides.provider_sub_id) return;
 
-  // subscriptions(user_id, plan_id, provider, provider_sub_id, status, current_period_end)
   await supa
     .from("subscriptions")
     .upsert(
@@ -80,35 +75,39 @@ async function upsertSubscription(
         status: overrides.status ?? "active",
         current_period_end: overrides.current_period_end ?? null,
       },
-      { onConflict: "provider_sub_id" }
+      { onConflict: "provider_sub_id" },
     );
 }
 
-async function insertInvoice(
+/* 👉 idempotente agora (onConflict: provider_invoice_id) */
+async function upsertInvoice(
   supa: SupabaseClient,
   invoice: Stripe.Invoice,
   userIdFallback: string | null,
-  planIdFallback: string | null
-): Promise<void> {
-  // invoices(provider, provider_invoice_id, user_id, amount_cents, currency, status, issued_at, pdf_url)
+) {
   const amountCents =
     (typeof invoice.amount_paid === "number" ? invoice.amount_paid : null) ??
     (typeof invoice.total === "number" ? invoice.total : 0);
 
-  await supa.from("invoices").insert({
-    provider: "stripe",
-    provider_invoice_id: invoice.id,
-    user_id: (invoice.metadata?.user_id as string) ?? userIdFallback,
-    amount_cents: amountCents,
-    currency: (invoice.currency ?? "brl").toUpperCase(),
-    status: invoice.status ?? "paid",
-    issued_at: toIso(invoice.created) ?? new Date().toISOString(),
-    pdf_url: invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null,
-  });
+  await supa
+    .from("invoices")
+    .upsert(
+      {
+        provider: "stripe",
+        provider_invoice_id: invoice.id,
+        user_id: (invoice.metadata?.user_id as string) ?? userIdFallback,
+        amount_cents: amountCents,
+        currency: (invoice.currency || "brl").toUpperCase(),
+        status: invoice.status || "paid",
+        issued_at: toIso(invoice.created) ?? new Date().toISOString(),
+        pdf_url: invoice.invoice_pdf ?? invoice.hosted_invoice_url ?? null,
+      },
+      { onConflict: "provider_invoice_id" },
+    );
 }
 
 async function retrieveSubscription(
-  subscriptionId?: string | null
+  subscriptionId?: string | null,
 ): Promise<Stripe.Subscription | null> {
   if (!subscriptionId) return null;
   try {
@@ -119,14 +118,11 @@ async function retrieveSubscription(
   }
 }
 
-/** === HANDLER === **/
-
+/* Handler */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-
   if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET)
     return res.status(500).json({ error: "Stripe webhook secrets missing" });
-
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE)
     return res.status(500).json({ error: "Supabase admin credentials missing" });
 
@@ -139,11 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature,
-      STRIPE_WEBHOOK_SECRET
-    );
+    event = stripe.webhooks.constructEvent(rawBody, signature, STRIPE_WEBHOOK_SECRET);
   } catch (e) {
     console.error("Stripe webhook signature verification failed", e);
     return res.status(400).json({ error: "Invalid signature" });
@@ -182,7 +174,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       case "invoice.paid": {
         const inv = event.data.object as InvoiceWithSub;
 
-        // subscriptionId pode vir string, objeto, ou null
         const subscriptionId =
           typeof inv.subscription === "string"
             ? inv.subscription
@@ -190,17 +181,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         const subscription = await retrieveSubscription(subscriptionId);
 
-        // primeira linha da fatura, tipada com price
-        const firstLine: LineWithPrice | undefined = inv.lines?.data?.[0] as LineWithPrice | undefined;
-        const linePrice: Stripe.Price | null | undefined = firstLine?.price ?? undefined;
+        const firstLine: LineWithPrice | undefined =
+          inv.lines?.data?.[0] as LineWithPrice | undefined;
+        const linePrice = firstLine?.price ?? undefined;
 
-        // user_id pode vir do metadata da invoice ou da subscription
         const userId =
           (inv.metadata?.user_id as string | undefined) ??
           (subscription?.metadata?.user_id as string | undefined) ??
           null;
 
-        // plan_id do metadata da invoice, da subscription, ou do price da linha
         const planId =
           (inv.metadata?.plan_id as string | undefined) ??
           (subscription?.metadata?.plan_id as string | undefined) ??
@@ -214,17 +203,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: "active",
           current_period_end: toIso(
             getCurrentPeriodEnd(subscription) ??
-            (firstLine?.period?.end as number | undefined) ??
-            (inv.period_end as number | undefined) ??
-            null
+              (firstLine?.period?.end as number | undefined) ??
+              (inv.period_end as number | undefined) ??
+              null,
           ),
         });
 
-        await insertInvoice(supa, inv, userId, planId);
+        await upsertInvoice(supa, inv, userId);
         break;
       }
-
-
 
       case "invoice.payment_failed": {
         const inv = event.data.object as InvoiceWithSub;
@@ -234,12 +221,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ? inv.subscription
             : inv.subscription?.id ?? null;
 
-        // PEGUE a assinatura (FALTAVA ESTA LINHA)
         const subscription = await retrieveSubscription(subscriptionId);
 
         const firstLine: LineWithPrice | undefined =
           inv.lines?.data?.[0] as LineWithPrice | undefined;
-        const linePrice: Stripe.Price | null | undefined = firstLine?.price ?? undefined;
+        const linePrice = firstLine?.price ?? undefined;
 
         const userId =
           (inv.metadata?.user_id as string | undefined) ??
@@ -257,16 +243,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           user_id: userId,
           plan_id: planId,
           status: "past_due",
-          // 👇 cast leve para satisfazer o TS
           current_period_end: toIso(getCurrentPeriodEnd(subscription) ?? null),
         });
 
-        await insertInvoice(supa, inv, userId, planId);
+        await upsertInvoice(supa, inv, userId);
         break;
       }
-
-
-
 
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
@@ -284,7 +266,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       default:
-        // ignore outros eventos
+        // ignorar outros eventos
         break;
     }
   } catch (e) {
@@ -294,5 +276,3 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   return res.status(200).json({ received: true });
 }
-
-
