@@ -64,19 +64,24 @@ async function upsertSubscription(
 ) {
   if (!overrides.provider_sub_id) return;
 
-  await supa
+  const resp = await supa
     .from("subscriptions")
     .upsert(
       {
         user_id: overrides.user_id ?? null,
         plan_id: overrides.plan_id ?? null,
         provider: "stripe",
-        provider_sub_id: overrides.provider_sub_id,
+        provider_sub_id: overrides.provider_sub_id!,
         status: overrides.status ?? "active",
         current_period_end: overrides.current_period_end ?? null,
       },
-      { onConflict: "provider_sub_id" },
+      { onConflict: "provider_sub_id" }
     );
+  assertOk(resp, "upsert subscriptions");
+
+  
+
+
 }
 
 /* 👉 idempotente agora (onConflict: provider_invoice_id) */
@@ -117,6 +122,19 @@ async function retrieveSubscription(
     return null;
   }
 }
+
+// helper: loga erros do supabase
+function assertOk<T>(res: { error: unknown } & T, ctx: string) {
+  if (res.error) {
+    console.error(`[Supabase] ${ctx} ->`, res.error);
+  }
+}
+
+// opcional: verificador simples de UUID
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const safeUserId = (v: string | null | undefined) =>
+  typeof v === "string" && UUID_RE.test(v) ? v : null;
+
 
 /* Handler */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -186,9 +204,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const linePrice = firstLine?.price ?? undefined;
 
         const userId =
-          (inv.metadata?.user_id as string | undefined) ??
-          (subscription?.metadata?.user_id as string | undefined) ??
+          safeUserId(inv.metadata?.user_id as string | undefined) ??
+          safeUserId(subscription?.metadata?.user_id as string | undefined) ??
           null;
+
 
         const planId =
           (inv.metadata?.plan_id as string | undefined) ??
@@ -203,9 +222,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           status: "active",
           current_period_end: toIso(
             getCurrentPeriodEnd(subscription) ??
-              (firstLine?.period?.end as number | undefined) ??
-              (inv.period_end as number | undefined) ??
-              null,
+            (firstLine?.period?.end as number | undefined) ??
+            (inv.period_end as number | undefined) ??
+            null,
           ),
         });
 
@@ -228,9 +247,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const linePrice = firstLine?.price ?? undefined;
 
         const userId =
-          (inv.metadata?.user_id as string | undefined) ??
-          (subscription?.metadata?.user_id as string | undefined) ??
+          safeUserId(inv.metadata?.user_id as string | undefined) ??
+          safeUserId(subscription?.metadata?.user_id as string | undefined) ??
           null;
+
 
         const planId =
           (inv.metadata?.plan_id as string | undefined) ??
