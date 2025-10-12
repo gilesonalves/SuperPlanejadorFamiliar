@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -11,14 +12,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { portfolio = [] } = (req.body as { portfolio?: unknown[] }) ?? {};
+
+  const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null;
+
+  const asText = (value: unknown, fallback = "-"): string => {
+    if (typeof value === "string" && value.trim().length > 0) return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return fallback;
+  };
+
   const brief = (Array.isArray(portfolio) ? portfolio : [])
     .slice(0, 40)
-    .map((entry: any) => {
-      const klass = entry?.class ?? entry?.assetClass ?? "-";
-      const symbol = entry?.symbol ?? "-";
-      const sector = entry?.sector ?? "-";
-      const qty = entry?.qty ?? entry?.quantity ?? "-";
-      const price = entry?.price ?? entry?.preco ?? "-";
+    .map((entry) => {
+      if (!isRecord(entry)) return "-:-(-) x- @-";
+      const klass = asText(entry.class ?? entry.assetClass);
+      const symbol = asText(entry.symbol);
+      const sector = asText(entry.sector);
+      const qty = asText(entry.qty ?? entry.quantity);
+      const price = asText(entry.price ?? entry.preco);
       return `${klass}:${symbol}(${sector}) x${qty} @${price}`;
     })
     .join("; ");

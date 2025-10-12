@@ -71,3 +71,15 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Garantindo UTF-8 em todo o projeto
+
+Para evitar problemas de mojibake (caracteres como `Ã`, `Â` ou o caractere de substituição `U+FFFD`) mantenha toda a cadeia em UTF-8:
+
+- Os arquivos HTML já declaram `<meta charset="utf-8" />` como primeira tag do `<head>`.
+- Os servers (Vite em desenvolvimento e as serverless em `api/*`) enviam `Content-Type` com `charset=utf-8` para respostas HTML e JSON.
+- Todos os arquivos `.ts`, `.tsx`, `.js`, `.json`, `.md`, `.html` e `.env` devem ser salvos em UTF-8 **sem BOM**. No VS Code use `File > Save with Encoding > UTF-8`.
+- Execute `npm run check:utf8` para verificar se há sequências típicas de mojibake (`U+FFFD`, `Ã`, `Â`, `&amp;Atilde;`, etc.). O comando falha se encontrar problemas.
+- Garanta que o banco/Supabase esteja configurado com `SHOW server_encoding;` retornando `UTF8` e evite funções que convertam para latin1 (ex.: `convert_from(..., 'latin1')`).
+
+Ao receber texto de APIs/fetch, mantenha o `TextDecoder` padrão (`utf-8`) e não force `latin1`.

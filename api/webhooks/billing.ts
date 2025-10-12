@@ -1,7 +1,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import Stripe from "stripe";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-
+const PRICE_PRO_MONTH = process.env.PRICE_PRO_MONTH ?? "";
+const PRICE_PREMIUM_MONTH = process.env.PRICE_PREMIUM_MONTH ?? "";
 export const config = { api: { bodyParser: false } };
 
 /* Tipos auxiliares para deixar o TS feliz sem any */
@@ -9,6 +10,13 @@ type InvoiceWithSub = Stripe.Invoice & {
   subscription?: string | Stripe.Subscription | null;
 };
 type LineWithPrice = Stripe.InvoiceLineItem & { price?: Stripe.Price | null };
+type CheckoutSessionDisplayItem = {
+  price?: Stripe.Price | string | null;
+};
+type CheckoutSessionWithExtras = Stripe.Checkout.Session & {
+  display_items?: CheckoutSessionDisplayItem[];
+  line_items?: Stripe.ApiList<Stripe.LineItem>;
+};
 
 /* Env */
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY ?? "";
@@ -39,6 +47,54 @@ function getCurrentPeriodEnd(
   return typeof s?.current_period_end === "number"
     ? s.current_period_end
     : undefined;
+}
+
+function planIdFromPriceId(priceId?: string | null): string | null {
+  if (!priceId) return null;
+  if (priceId === PRICE_PRO_MONTH) return "pro";
+  if (priceId === PRICE_PREMIUM_MONTH) return "premium";
+  return null;
+}
+
+async function findUserByCustomer(
+  supa: SupabaseClient,
+  customerId?: string | null
+): Promise<string | null> {
+  if (!customerId) return null;
+  const { data, error } = await supa
+    .from("stripe_customers")
+    .select("user_id")
+    .eq("customer_id", customerId)
+    .maybeSingle();
+  if (error) console.error("[Supabase] findUserByCustomer ->", error);
+  return (data?.user_id as string) ?? null;
+}
+
+// grava/atualiza o mapa stripe_customers (chamar no checkout.session.completed)
+async function upsertStripeCustomerMap(
+  supa: SupabaseClient,
+  customerId: string,
+  userId: string
+): Promise<void> {
+  if (!customerId || !userId) return;
+  const { error } = await supa
+    .from("stripe_customers")
+    .upsert({ customer_id: customerId, user_id: userId });
+  if (error) console.error("[Supabase] upsert stripe_customers ->", error);
+}
+
+function priceIdFromCheckoutSession(session: Stripe.Checkout.Session): string | null {
+  const extras = session as CheckoutSessionWithExtras;
+  // aceita tanto display_items legados (string ou objeto) quanto line_items expandido
+  const legacyPrice = extras.display_items?.[0]?.price;
+  if (typeof legacyPrice === "string") {
+    return legacyPrice;
+  }
+  if (legacyPrice && typeof legacyPrice.id === "string") {
+    return legacyPrice.id;
+  }
+  const lineItem = extras.line_items?.data?.[0];
+  return lineItem?.price?.id ?? null;
 }
 
 /* Persistência */
@@ -79,7 +135,7 @@ async function upsertSubscription(
     );
   assertOk(resp, "upsert subscriptions");
 
-  
+
 
 
 }
@@ -88,7 +144,7 @@ async function upsertSubscription(
 async function upsertInvoice(
   supa: SupabaseClient,
   invoice: Stripe.Invoice,
-  userIdFallback: string | null,
+  resolvedUserId: string | null,
 ) {
   const amountCents =
     (typeof invoice.amount_paid === "number" ? invoice.amount_paid : null) ??
@@ -100,7 +156,7 @@ async function upsertInvoice(
       {
         provider: "stripe",
         provider_invoice_id: invoice.id,
-        user_id: (invoice.metadata?.user_id as string) ?? userIdFallback,
+        user_id: resolvedUserId,
         amount_cents: amountCents,
         currency: (invoice.currency || "brl").toUpperCase(),
         status: invoice.status || "paid",
@@ -142,6 +198,7 @@ const safeUserId = (v: string | null | undefined) =>
 
 /* Handler */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   if (!STRIPE_SECRET_KEY || !STRIPE_WEBHOOK_SECRET)
     return res.status(500).json({ error: "Stripe webhook secrets missing" });
@@ -173,14 +230,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const subscription = await retrieveSubscription(subscriptionId);
 
         const userId =
-          (s.client_reference_id as string) ??
-          (s.metadata?.user_id as string) ??
-          (subscription?.metadata?.user_id as string) ??
+          safeUserId(s.client_reference_id as string | undefined) ??
+          safeUserId(s.metadata?.user_id as string | undefined) ??
+          safeUserId(subscription?.metadata?.user_id as string | undefined) ??
           null;
 
+        // Salva o mapa customer -> user
+        const customerId = typeof s.customer === "string" ? s.customer : s.customer?.id ?? null;
+        if (userId && customerId) {
+          await upsertStripeCustomerMap(supa, customerId, userId);
+        }
+
+        // Resolve plan por metadata OU pelo price (se tiver na session)
+        const sessionPriceId = priceIdFromCheckoutSession(s);
+        const subscriptionPriceId =
+          subscription?.items?.data?.[0]?.price?.id ?? null;
         const planId =
           (s.metadata?.plan_id as string) ??
           (subscription?.metadata?.plan_id as string) ??
+          planIdFromPriceId(sessionPriceId) ??
+          planIdFromPriceId(subscriptionPriceId) ??
           null;
 
         await upsertSubscription(supa, {
@@ -207,15 +276,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inv.lines?.data?.[0] as LineWithPrice | undefined;
         const linePrice = firstLine?.price ?? undefined;
 
-        const userId =
-          safeUserId(inv.metadata?.user_id as string | undefined) ??
-          safeUserId(subscription?.metadata?.user_id as string | undefined) ??
-          null;
-
+        const customerId =
+          typeof inv.customer === "string"
+            ? inv.customer
+            : inv.customer?.id ?? null;
+        const metadataUserId = safeUserId(
+          inv.metadata?.user_id as string | undefined,
+        );
+        const subscriptionUserId = safeUserId(
+          subscription?.metadata?.user_id as string | undefined,
+        );
+        const mappedUserIdRaw = await findUserByCustomer(supa, customerId);
+        const mappedUserId = safeUserId(mappedUserIdRaw ?? undefined);
+        const userId = metadataUserId ?? mappedUserId ?? subscriptionUserId ?? null;
 
         const planId =
           (inv.metadata?.plan_id as string | undefined) ??
           (subscription?.metadata?.plan_id as string | undefined) ??
+          planIdFromPriceId(linePrice?.id ?? null) ??
+          planIdFromPriceId(subscription?.items?.data?.[0]?.price?.id ?? null) ??
           (linePrice?.metadata?.plan_id as string | undefined) ??
           null;
 
@@ -250,15 +329,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inv.lines?.data?.[0] as LineWithPrice | undefined;
         const linePrice = firstLine?.price ?? undefined;
 
-        const userId =
-          safeUserId(inv.metadata?.user_id as string | undefined) ??
-          safeUserId(subscription?.metadata?.user_id as string | undefined) ??
-          null;
-
+        const customerId =
+          typeof inv.customer === "string"
+            ? inv.customer
+            : inv.customer?.id ?? null;
+        const metadataUserId = safeUserId(
+          inv.metadata?.user_id as string | undefined,
+        );
+        const subscriptionUserId = safeUserId(
+          subscription?.metadata?.user_id as string | undefined,
+        );
+        const mappedUserIdRaw = await findUserByCustomer(supa, customerId);
+        const mappedUserId = safeUserId(mappedUserIdRaw ?? undefined);
+        const userId = metadataUserId ?? mappedUserId ?? subscriptionUserId ?? null;
 
         const planId =
           (inv.metadata?.plan_id as string | undefined) ??
           (subscription?.metadata?.plan_id as string | undefined) ??
+          planIdFromPriceId(linePrice?.id ?? null) ??
+          planIdFromPriceId(subscription?.items?.data?.[0]?.price?.id ?? null) ??
           (linePrice?.metadata?.plan_id as string | undefined) ??
           null;
 
@@ -276,8 +365,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       case "customer.subscription.deleted": {
         const sub = event.data.object as Stripe.Subscription;
-        const userId = (sub.metadata?.user_id as string) ?? null;
-        const planId = (sub.metadata?.plan_id as string) ?? null;
+        const customerId =
+          typeof sub.customer === "string"
+            ? sub.customer
+            : sub.customer?.id ?? null;
+        const metadataUserId = safeUserId(
+          sub.metadata?.user_id as string | undefined,
+        );
+        const mappedUserIdRaw = await findUserByCustomer(supa, customerId);
+        const mappedUserId = safeUserId(mappedUserIdRaw ?? undefined);
+        const userId = metadataUserId ?? mappedUserId ?? null;
+        const planId =
+          (sub.metadata?.plan_id as string | undefined) ??
+          planIdFromPriceId(sub.items?.data?.[0]?.price?.id ?? null) ??
+          null;
 
         await upsertSubscription(supa, {
           provider_sub_id: sub.id,

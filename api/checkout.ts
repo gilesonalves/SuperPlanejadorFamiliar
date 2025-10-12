@@ -51,6 +51,7 @@ const extractAccessToken = (req: VercelRequest): string | undefined => {
 };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -69,7 +70,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const payload = parseBody(req.body);
-  const planId = payload.planId;
+  const planFromQueryRaw = req.query?.plan;
+  const planFromQuery =
+    typeof planFromQueryRaw === "string"
+      ? planFromQueryRaw
+      : Array.isArray(planFromQueryRaw)
+        ? planFromQueryRaw[0]
+        : undefined;
+  const planFromBody = typeof payload.planId === "string" ? payload.planId : undefined;
+  const planId = planFromQuery ?? planFromBody;
+
   if (planId !== "pro" && planId !== "premium") {
     return res.status(400).json({ error: "Plano inválido." });
   }

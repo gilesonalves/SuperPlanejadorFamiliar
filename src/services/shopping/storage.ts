@@ -1,7 +1,23 @@
-import type { ShoppingState, ShoppingList } from "./types";
+import type { ShoppingState, ShoppingList, ShoppingItem } from "./types";
 import { defaultCategories, sampleItems } from "./seed";
 
 const KEY = "sp_shopping_v1";
+const fallbackCategoryId = defaultCategories[0]?.id ?? "geral";
+
+const ensureSampleItem = (item: Partial<ShoppingItem>): ShoppingItem => ({
+  id: crypto.randomUUID(),
+  nome: item.nome ?? "Item",
+  categoriaId: item.categoriaId ?? fallbackCategoryId,
+  quantidade: item.quantidade ?? 1,
+  unidade: item.unidade,
+  preco: item.preco,
+  marca: item.marca,
+  observacao: item.observacao,
+  status: "pendente",
+  icon: item.icon,
+  dicaReceita: item.dicaReceita,
+  nutricao: item.nutricao,
+});
 
 export function loadShopping(): ShoppingState {
   try {
@@ -17,11 +33,7 @@ export function loadShopping(): ShoppingState {
     id: crypto.randomUUID(),
     nome: "Minha Lista",
     categorias: defaultCategories,
-    itens: sampleItems.map((item) => ({
-      id: crypto.randomUUID(),
-      status: "pendente" as const,
-      ...item,
-    })) as any,
+    itens: sampleItems.map(ensureSampleItem),
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };

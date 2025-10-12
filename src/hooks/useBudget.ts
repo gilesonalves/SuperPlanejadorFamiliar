@@ -12,18 +12,58 @@ const monthKey = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 };
 
-const normalizeBudgetItem = (item: BudgetItem, index: number): BudgetItem => {
+const toRecord = (value: unknown): Record<string, unknown> =>
+  typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+
+const readString = (
+  record: Record<string, unknown>,
+  keys: string[],
+  fallback = "",
+): string => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return fallback;
+};
+
+const readNumber = (
+  record: Record<string, unknown>,
+  keys: string[],
+  fallback = 0,
+): number => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return fallback;
+};
+
+const normalizeBudgetItem = (item: Partial<BudgetItem>, index: number): BudgetItem => {
+  const record = toRecord(item);
   const fallbackId = `b-${Date.now()}-${index}`;
-  const id = typeof item.id === "string" && item.id.length ? item.id : fallbackId;
-  const planned = Number((item as any).planned ?? (item as any).planejado ?? 0) || 0;
-  const actual = Number((item as any).actual ?? (item as any).realizado ?? 0) || 0;
-  const rawType = (item as any).type;
-  const type = rawType === "income" || rawType === "expense" ? rawType : planned >= 0 ? "income" : "expense";
-  const month = (item as any).month ?? (item as any).mes ?? monthKey();
+  const id = readString(record, ["id"], fallbackId);
+  const planned = readNumber(record, ["planned", "planejado"], 0);
+  const actual = readNumber(record, ["actual", "realizado"], 0);
+  const rawType = readString(record, ["type"]);
+  const type: BudgetItem["type"] =
+    rawType === "income" || rawType === "expense"
+      ? rawType
+      : planned >= 0
+        ? "income"
+        : "expense";
+  const month = readString(record, ["month", "mes"], monthKey());
+  const category = readString(record, ["category", "categoria"]);
 
   return {
     id,
-    category: (item as any).category ?? (item as any).categoria ?? "",
+    category,
     planned,
     actual,
     type,
@@ -67,7 +107,7 @@ export function useBudget() {
           actual: item?.actual ?? 0,
           type: item?.type ?? "expense",
           month: item?.month ?? monthKey(),
-        } as BudgetItem,
+        },
         prev.budget.length,
       );
       return {

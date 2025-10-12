@@ -44,7 +44,7 @@ export default function AIHints() {
       <CardContent>
         {!text ? (
           <p className="text-sm text-muted-foreground">
-            Conecte um endpoint <code>/api/ai-hints</code> com Groq para gerar sugestoes a partir da sua carteira.
+            Conecte um endpoint <code>/api/ai-hints</code> com Groq para gerar sugestões a partir da sua carteira.
           </p>
         ) : (
           <div className="prose prose-invert whitespace-pre-wrap text-sm">{text}</div>

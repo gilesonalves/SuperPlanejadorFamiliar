@@ -99,7 +99,7 @@ function normalizeState(state: StoreAppState): AppState {
   return {
     ...state,
     portfolio,
-    budget: toNumberSafe(state.budget),
+    budget: Array.isArray(state.budget) ? state.budget : [],
     settings: normalizeSettings(state.settings),
   };
 }

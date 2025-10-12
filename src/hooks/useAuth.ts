@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { ensureTrial } from "@/lib/ensureTrial";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setL] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const ensuredUserIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let alive = true;
@@ -13,11 +15,11 @@ export function useAuth() {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       setUser(data.session?.user ?? null);
-      setL(false);
+      setLoading(false);
     });
 
     // 2) escuta mudanças (login/logout/refresh)
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
     });
 
@@ -27,6 +29,16 @@ export function useAuth() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    if (ensuredUserIds.current.has(user.id)) return;
+    ensuredUserIds.current.add(user.id);
+
+    ensureTrial().catch((error) => {
+      console.warn("ensureTrial failed", error);
+    });
+  }, [user]);
+
   return { user, loading };
 }
 
@@ -34,10 +46,12 @@ export function useAuth() {
 export async function signOut() {
   await supabase.auth.signOut();
 }
+
 export async function signInEmailPassword(email: string, password: string) {
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   return error?.message ?? null;
 }
+
 export async function signInWithGoogle() {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
@@ -45,10 +59,12 @@ export async function signInWithGoogle() {
   });
   return error?.message ?? null;
 }
+
 export async function signUpEmailPassword(email: string, password: string) {
   const { error } = await supabase.auth.signUp({ email, password });
   return error?.message ?? null;
 }
+
 export async function resetPassword(email: string) {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/auth/update-password`,

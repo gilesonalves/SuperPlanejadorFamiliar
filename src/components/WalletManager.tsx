@@ -24,10 +24,13 @@ import PricesPanel from "@/components/wallet/PricesPanel";
 import SectorSummary from "@/components/wallet/SectorSummary";
 import AIHints from "@/components/wallet/AIHints";
 import FeatureLock from "@/components/FeatureLock";
+import { UpgradeCard } from "@/components/UpgradeCard";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { useEntitlements } from "@/hooks/useEntitlements";
 import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage";
 import { cn } from "@/lib/utils";
+import { goCheckout } from "@/lib/checkout";
 import type { PortfolioItem } from "@/hooks/usePortfolio";
 type Totals = {
   valor: number;
@@ -129,16 +132,27 @@ const WalletManager = () => {
   } = usePortfolio();
   const { toast } = useToast();
   const { flags, loading: featureFlagsLoading } = useFeatureFlags();
+  const { loading: entitlementsLoading, tier, has, trialExpiresAt } = useEntitlements();
   const isLoadingFlags = featureFlagsLoading;
+  const entitlementsReady = !entitlementsLoading;
   const cardsModuleEnabled = flags.CARDS_MODULE;
   const goalsEnabled = flags.GOALS;
   const reportsEnabled = flags.REPORTS;
   const exportsEnabled = flags.EXPORTS;
-  const cardsLocked = !cardsModuleEnabled && !isLoadingFlags;
-  const goalsLocked = !goalsEnabled && !isLoadingFlags;
-  const reportsLocked = !reportsEnabled && !isLoadingFlags;
-  const exportsLocked = !exportsEnabled && !isLoadingFlags;
-  const openFinanceLocked = !flags.OPEN_FINANCE && !isLoadingFlags;
+  const hasReports = has("reports");
+  const hasDashboards = has("dashboards");
+  const hasAutosuggestions = has("autosuggestions");
+  const cardsLocked =
+    (!cardsModuleEnabled && !isLoadingFlags) || (entitlementsReady && !hasDashboards);
+  const goalsLocked =
+    (!goalsEnabled && !isLoadingFlags) || (entitlementsReady && !hasDashboards);
+  const reportsLocked =
+    (!reportsEnabled && !isLoadingFlags) ||
+    (entitlementsReady && (!hasReports || !hasDashboards));
+  const exportsLocked =
+    (!exportsEnabled && !isLoadingFlags) || (entitlementsReady && !hasReports);
+  const openFinanceLocked =
+    (!flags.OPEN_FINANCE && !isLoadingFlags) || (entitlementsReady && !hasAutosuggestions);
   const [newItem, setNewItem] = useState<NewItemState>(defaultNewItem);
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") {
@@ -156,6 +170,13 @@ const WalletManager = () => {
       setView("table");
     }
   }, [cardsLocked, view]);
+  const upgradeTitle = tier === "free" ? "Desbloqueie relatórios" : "Seu teste terminou";
+  const upgradeDescription =
+    tier === "free"
+      ? "Assine para liberar relatórios e dashboards."
+      : "Faça upgrade para continuar usando relatórios e dashboards.";
+  const trialExpiryLabel =
+    tier === "trial" && trialExpiresAt ? new Date(trialExpiresAt).toLocaleDateString() : null;
   const tickerPlaceholder =
     newItem.assetClass === "FII"
       ? "Ex: MXRF11"
@@ -467,30 +488,37 @@ const WalletManager = () => {
       </Card>
 
       {/* Blocos analiticos */}
-      {reportsLocked ? (
-        <FeatureLock
-          title="Relat�rios e dashboards"
-          description="Libere gr�ficos e sugest�es autom�ticas ao subir para o plano Pro."
+{entitlementsLoading ? null : reportsLocked ? (
+        <UpgradeCard
+          title={upgradeTitle}
+          description={upgradeDescription}
+          onPro={() => goCheckout("pro")}
+          onPremium={() => goCheckout("premium")}
         />
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <EvolutionChart />
           <SectorSummary />
           <PricesPanel />
-          <AIHints />
+          {hasAutosuggestions ? <AIHints /> : null}
         </div>
       )}
 
       {/* Configurações */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Card className="financial-card">
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <DollarSign className="mr-2 h-5 w-5" />
-              Configurações da Carteira
-            </CardTitle>
-            <CardDescription>Controle metas e integração com a BRAPI.</CardDescription>
-          </CardHeader>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <DollarSign className="mr-2 h-5 w-5" />
+                Configurações da Carteira
+              </CardTitle>
+              <CardDescription>Controle metas e integração com a BRAPI.</CardDescription>
+              {trialExpiryLabel ? (
+                <p className="mt-2 text-xs text-primary">
+                  Período de teste ativo até {trialExpiryLabel}.
+                </p>
+              ) : null}
+            </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <Label>Orçamento de Aporte (R$)</Label>
@@ -506,7 +534,7 @@ const WalletManager = () => {
             {/* Metas (%) */}
             {goalsLocked ? (
               <FeatureLock
-                title="Metas de aloca��o"
+                title="Metas de alocação"
                 description="Desbloqueie metas percentuais personalizadas com o plano Pro."
               />
             ) : (
@@ -588,8 +616,8 @@ const WalletManager = () => {
               </Button>
             ) : (
               <FeatureLock
-                title="Exportar relat�rios CSV"
-                description="Crie exporta��es completas ao migrar para os planos pagos."
+                title="Exportar relatórios CSV"
+                description="Crie exportações completas ao migrar para os planos pagos."
               />
             )}
           </CardContent>
@@ -762,7 +790,7 @@ const WalletManager = () => {
             </div>
           ) : (
             <FeatureLock
-              title="Visualiza��o em cards"
+              title="Visualização em cards"
               description="Ative os cards de carteira atualizando para o plano Pro."
               variant="inline"
             />
@@ -978,6 +1006,18 @@ const WalletManager = () => {
 };
 
 export default WalletManager;
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
