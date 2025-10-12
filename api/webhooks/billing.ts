@@ -94,7 +94,7 @@ async function upsertInvoice(
     (typeof invoice.amount_paid === "number" ? invoice.amount_paid : null) ??
     (typeof invoice.total === "number" ? invoice.total : 0);
 
-  await supa
+  const resp = await supa
     .from("invoices")
     .upsert(
       {
@@ -109,7 +109,11 @@ async function upsertInvoice(
       },
       { onConflict: "provider_invoice_id" },
     );
+
+  assertOk(resp, "upsert invoices"); // <— adicione isso
 }
+
+
 
 async function retrieveSubscription(
   subscriptionId?: string | null,
