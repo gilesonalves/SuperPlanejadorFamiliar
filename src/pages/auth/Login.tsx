@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { ensureTrial } from "@/lib/ensureTrial";
 
 const missingConfigMessage = "Configure VITE_SUPABASE_URL/ANON_KEY";
 
@@ -32,10 +33,13 @@ const LoginPage = () => {
 
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
         toast({ variant: "destructive", title: "Falha no login", description: error.message });
         return;
+      }
+      if (data?.user) {
+        await ensureTrial(supabase, data.user.id);
       }
       toast({ title: "Bem-vindo de volta" });
       navigate("/");

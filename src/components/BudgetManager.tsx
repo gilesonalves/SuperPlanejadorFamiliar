@@ -11,6 +11,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { useBudget } from "@/hooks/useBudget";
 import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { usePremiumAccess } from "@/hooks/usePremiumAccess";
 
 type NewBudgetRow = {
   category: string;
@@ -47,10 +48,13 @@ const BudgetManager = () => {
   const { state, addRow, updateRow, removeRow } = useBudget();
   const { toast } = useToast();
   const { flags, loading: flagsLoading } = useFeatureFlags();
+  const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
   const [currentMonth, setCurrentMonth] = useState(() => monthKey());
   const [newRow, setNewRow] = useState<NewBudgetRow>(defaultNewRow);
-  const categoryLimitsLocked = !flags.CATEGORY_LIMITS && !flagsLoading;
-  const cashForecastLocked = !flags.CASH_FORECAST && !flagsLoading;
+  const categoryLimitsEnabled = premiumAllowed || flags.CATEGORY_LIMITS;
+  const cashForecastEnabled = premiumAllowed || flags.CASH_FORECAST;
+  const categoryLimitsLocked = !categoryLimitsEnabled && !flagsLoading && !premiumLoading;
+  const cashForecastLocked = !cashForecastEnabled && !flagsLoading && !premiumLoading;
 
   const items = useMemo(
     () => state.budget.filter((row) => row.month === currentMonth),
@@ -85,7 +89,10 @@ const BudgetManager = () => {
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 
   const handleAddRow = () => {
-    if (!flagsLoading && !flags.CATEGORY_LIMITS) {
+    if (!categoryLimitsEnabled) {
+      if (flagsLoading || premiumLoading) {
+        return;
+      }
       toast({
         title: "Limites por categoria disponíveis no Pro",
         description: "Atualize o plano para criar novos limites e metas personalizadas.",
@@ -242,7 +249,7 @@ const BudgetManager = () => {
                 value={newRow.planned}
                 onChange={(event) => setNewRow((prev) => ({ ...prev, planned: Number(event.target.value) || 0 }))}
                 className="input-financial"
-                disabled={categoryLimitsLocked}
+                disabled={!categoryLimitsEnabled}
               />
             </div>
 
@@ -260,7 +267,7 @@ const BudgetManager = () => {
             <Button
               onClick={handleAddRow}
               className="w-full btn-financial--primary"
-              disabled={categoryLimitsLocked}
+              disabled={!categoryLimitsEnabled}
             >
               <Plus className="mr-2 h-4 w-4" />
               Adicionar Categoria
@@ -351,7 +358,7 @@ const BudgetManager = () => {
                                   updateRow(item.id, { planned: Number(event.target.value) || 0 })
                                 }
                                 className="h-9 flex-1 min-w-0 text-right text-sm"
-                                disabled={categoryLimitsLocked}
+                                disabled={!categoryLimitsEnabled}
                               />
                             </div>
                             <div className="budget-row flex items-center gap-3">
@@ -451,7 +458,7 @@ const BudgetManager = () => {
                                   updateRow(item.id, { planned: Number(event.target.value) || 0 })
                                 }
                                 className="h-8 min-w-[6rem] text-right text-xs"
-                                disabled={categoryLimitsLocked}
+                                disabled={!categoryLimitsEnabled}
                               />
                             </td>
                             <td>

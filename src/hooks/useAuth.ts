@@ -34,7 +34,7 @@ export function useAuth() {
     if (ensuredUserIds.current.has(user.id)) return;
     ensuredUserIds.current.add(user.id);
 
-    ensureTrial().catch((error) => {
+    ensureTrial(supabase, user.id).catch((error) => {
       console.warn("ensureTrial failed", error);
     });
   }, [user]);
@@ -48,7 +48,10 @@ export async function signOut() {
 }
 
 export async function signInEmailPassword(email: string, password: string) {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (!error && data.user) {
+    await ensureTrial(supabase, data.user.id);
+  }
   return error?.message ?? null;
 }
 

@@ -15,10 +15,15 @@ import {
 import { Link } from "react-router-dom";
 import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { usePremiumAccess } from "@/hooks/usePremiumAccess";
 
 export default function Dashboard() {
   const { flags } = useFeatureFlags();
+  const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
   const { OPEN_FINANCE, CASH_FORECAST, MULTI_PROFILE } = flags;
+  const openFinanceEnabled = premiumAllowed || OPEN_FINANCE;
+  const cashForecastEnabled = premiumAllowed || CASH_FORECAST;
+  const multiProfileEnabled = premiumAllowed || MULTI_PROFILE;
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -140,7 +145,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {OPEN_FINANCE ? (
+        {openFinanceEnabled ? (
           <Card className="h-full">
             <CardHeader className="flex flex-row items-start justify-between">
               <div>
@@ -161,14 +166,14 @@ export default function Dashboard() {
               </Button>
             </CardContent>
           </Card>
-        ) : (
+        ) : premiumLoading ? null : (
           <FeatureLock
             title="Integrações Open Finance"
             description="Conecte contas bancárias e sincronize ativos liberando o plano Pro."
           />
         )}
 
-        {CASH_FORECAST ? (
+        {cashForecastEnabled ? (
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -188,7 +193,7 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
-        ) : (
+        ) : premiumLoading ? null : (
           <FeatureLock
             title="Forecast de caixa"
             description="Ative projeções semanais e alertas liberando o plano Premium."
@@ -197,7 +202,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {MULTI_PROFILE ? (
+        {multiProfileEnabled ? (
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -215,7 +220,7 @@ export default function Dashboard() {
               </Button>
             </CardContent>
           </Card>
-        ) : (
+        ) : premiumLoading ? null : (
           <FeatureLock
             title="Multi perfis"
             description="Disponível no plano Premium para contas familiares e squads."

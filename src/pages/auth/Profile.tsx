@@ -3,12 +3,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
+import { usePremiumAccess } from "@/hooks/usePremiumAccess";
 import { useAuth, signOut } from "@/hooks/useAuth";
 
 const ProfilePage = () => {
   const { user } = useAuth();
   const { flags } = useFeatureFlags();
-  const multiProfileLocked = !flags.MULTI_PROFILE;
+  const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
+  const multiProfileEnabled = premiumAllowed || flags.MULTI_PROFILE;
+  const multiProfileLocked = !multiProfileEnabled && !premiumLoading;
 
   if (!user) {
     return (
@@ -51,7 +54,7 @@ const ProfilePage = () => {
           title="Multi perfis bloqueado"
           description="Disponível nos planos Premium para gerenciar finanças familiares e de clientes."
         />
-      ) : (
+      ) : !multiProfileEnabled ? null : (
         <Card>
           <CardHeader>
             <CardTitle>Perfis adicionais</CardTitle>

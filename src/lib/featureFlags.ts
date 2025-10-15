@@ -1,5 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
+export type Tier = "free" | "trial" | "pro" | "premium";
+
 export const FEATURE_FLAG_KEYS = [
   "OPEN_FINANCE",
   "CARDS_MODULE",
@@ -93,4 +95,107 @@ export async function getUserFlags(userId?: string): Promise<FeatureFlags> {
     console.warn("featureFlags:getUserFlags", error);
     return defaults;
   }
+}
+
+const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
+
+const mapPlanToTier = (planId?: string | null): Tier | null => {
+  if (!planId) return null;
+  const normalized = planId.trim().toLowerCase();
+  if (normalized === "premium") return "premium";
+  if (normalized === "pro") return "pro";
+  if (normalized.includes("premium")) return "premium";
+  if (normalized.includes("pro")) return "pro";
+  return null;
+};
+
+type SubscriptionRow = {
+  plan_id: string | null;
+  status: string | null;
+  current_period_end: string | null;
+};
+
+type EntitlementTierRow = {
+  plan_tier: string | null;
+  trial_ends_at: string | null;
+};
+
+export async function getEffectiveTier(): Promise<Tier> {
+  try {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError) {
+      console.error("[featureFlags] auth error:", authError);
+      return "free";
+    }
+
+    const userId = authData.user?.id;
+    if (!userId) {
+      return "free";
+    }
+
+    const { data: subscription, error: subscriptionError } = await supabase
+      .from("subscriptions")
+      .select("plan_id, status, current_period_end")
+      .eq("user_id", userId)
+      .order("current_period_end", { ascending: false })
+      .limit(1)
+      .maybeSingle<SubscriptionRow>();
+
+    if (subscriptionError && subscriptionError.code !== "PGRST116") {
+      console.error("[featureFlags] subscriptions error:", subscriptionError);
+    }
+
+    const now = new Date();
+    const subTier = (() => {
+      if (!subscription) return null;
+      const status = subscription.status ?? "";
+      if (!ACTIVE_SUBSCRIPTION_STATUSES.has(status)) {
+        return null;
+      }
+      const endDate = subscription.current_period_end
+        ? new Date(subscription.current_period_end)
+        : null;
+      if (endDate && endDate <= now) {
+        return null;
+      }
+      return mapPlanToTier(subscription.plan_id);
+    })();
+
+    if (subTier) {
+      return subTier;
+    }
+
+    const { data: entitlements, error: entitlementsError } = await supabase
+      .from("user_entitlements")
+      .select("plan_tier, trial_ends_at")
+      .eq("user_id", userId)
+      .maybeSingle<EntitlementTierRow>();
+
+    if (entitlementsError && entitlementsError.code !== "PGRST116") {
+      console.error("[featureFlags] entitlements error:", entitlementsError);
+    }
+
+    if (entitlements) {
+      const tier = entitlements.plan_tier?.toLowerCase();
+      if (tier === "premium" || tier === "pro") {
+        return tier;
+      }
+      if (tier === "trial") {
+        const endsAt = entitlements.trial_ends_at ? new Date(entitlements.trial_ends_at) : null;
+        if (endsAt && endsAt > now) {
+          return "trial";
+        }
+      }
+    }
+
+    return "free";
+  } catch (error) {
+    console.error("[featureFlags] getEffectiveTier unexpected error:", error);
+    return "free";
+  }
+}
+
+export async function canUsePremium(): Promise<boolean> {
+  const tier = await getEffectiveTier();
+  return tier === "trial" || tier === "pro" || tier === "premium";
 }
