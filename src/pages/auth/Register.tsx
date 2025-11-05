@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
+import { ensureTrial } from "@/lib/ensureTrial";
 
 const missingConfigMessage = "Configure VITE_SUPABASE_URL/ANON_KEY";
 
@@ -39,10 +40,15 @@ const RegisterPage = () => {
 
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({ email, password });
       if (error) {
         toast({ variant: "destructive", title: "Falha no cadastro", description: error.message });
         return;
+      }
+      if (data?.user?.id) {
+        ensureTrial(supabase, data.user.id).catch((err) => {
+          console.error("[ensureTrial after register]", err);
+        });
       }
       toast({
         title: "Cadastro realizado",

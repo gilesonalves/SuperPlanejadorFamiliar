@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,6 +12,8 @@ import { useBudget } from "@/hooks/useBudget";
 import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { usePremiumAccess } from "@/hooks/usePremiumAccess";
+import { useAuth } from "@/hooks/useAuth";
+import { useEntitlements } from "@/hooks/useEntitlements";
 
 type NewBudgetRow = {
   category: string;
@@ -49,12 +51,46 @@ const BudgetManager = () => {
   const { toast } = useToast();
   const { flags, loading: flagsLoading } = useFeatureFlags();
   const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
+  const { user } = useAuth();
+  const { effectiveTier, trialExpiresAt } = useEntitlements();
   const [currentMonth, setCurrentMonth] = useState(() => monthKey());
   const [newRow, setNewRow] = useState<NewBudgetRow>(defaultNewRow);
+  const trialActive = effectiveTier === "trial";
+  const trialExpiryLabel =
+    trialActive && trialExpiresAt
+      ? new Date(trialExpiresAt).toLocaleDateString()
+      : null;
   const categoryLimitsEnabled = premiumAllowed || flags.CATEGORY_LIMITS;
   const cashForecastEnabled = premiumAllowed || flags.CASH_FORECAST;
   const categoryLimitsLocked = !categoryLimitsEnabled && !flagsLoading && !premiumLoading;
   const cashForecastLocked = !cashForecastEnabled && !flagsLoading && !premiumLoading;
+  const categoryLockDescription = trialActive
+    ? `Teste gratuito ativo até ${trialExpiryLabel ?? "o fim do período"}.`
+    : "Atualize o plano para cadastrar e editar metas planejadas.";
+  const cashForecastLockDescription = trialActive
+    ? `Teste gratuito ativo até ${trialExpiryLabel ?? "o fim do período"}.`
+    : "Libere simulações de fluxo de caixa nos planos Pro e Premium.";
+
+  useEffect(() => {
+    if (flagsLoading || premiumLoading) return;
+    if (!categoryLimitsLocked && !cashForecastLocked) return;
+
+    console.warn("[BudgetManager] feature gate ativo", {
+      userId: user?.id ?? null,
+      plan: effectiveTier,
+      trialEndsAt: trialExpiresAt,
+      now: new Date().toISOString(),
+      locks: { categoryLimitsLocked, cashForecastLocked },
+    });
+  }, [
+    flagsLoading,
+    premiumLoading,
+    categoryLimitsLocked,
+    cashForecastLocked,
+    user?.id,
+    effectiveTier,
+    trialExpiresAt,
+  ]);
 
   const items = useMemo(
     () => state.budget.filter((row) => row.month === currentMonth),
@@ -276,7 +312,7 @@ const BudgetManager = () => {
               <div className="pt-2">
                 <FeatureLock
                   title="Limites por categoria bloqueados"
-                  description="Atualize o plano para cadastrar e editar metas planejadas."
+                  description={categoryLockDescription}
                   variant="inline"
                 />
               </div>
@@ -504,7 +540,7 @@ const BudgetManager = () => {
       {cashForecastLocked ? (
         <FeatureLock
           title="Previsão de caixa automatizada"
-          description="Libere simulações de fluxo de caixa nos planos Pro e Premium."
+          description={cashForecastLockDescription}
         />
       ) : (
         <Card>

@@ -38,8 +38,10 @@ const LoginPage = () => {
         toast({ variant: "destructive", title: "Falha no login", description: error.message });
         return;
       }
-      if (data?.user) {
-        await ensureTrial(supabase, data.user.id);
+      if (data?.user?.id) {
+        ensureTrial(supabase, data.user.id).catch((err) => {
+          console.error("[ensureTrial after login]", err);
+        });
       }
       toast({ title: "Bem-vindo de volta" });
       navigate("/");

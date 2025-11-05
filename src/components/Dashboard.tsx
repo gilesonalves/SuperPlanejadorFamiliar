@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,14 +17,58 @@ import { Link } from "react-router-dom";
 import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { usePremiumAccess } from "@/hooks/usePremiumAccess";
+import { useAuth } from "@/hooks/useAuth";
+import { useEntitlements } from "@/hooks/useEntitlements";
 
 export default function Dashboard() {
   const { flags } = useFeatureFlags();
   const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
+  const { user } = useAuth();
+  const { effectiveTier, trialExpiresAt } = useEntitlements();
+  const trialActive = effectiveTier === "trial";
+  const trialExpiryLabel =
+    trialActive && trialExpiresAt
+      ? new Date(trialExpiresAt).toLocaleDateString()
+      : null;
+  const trialMessage = `Teste gratuito ativo até ${trialExpiryLabel ?? "o fim do período"}.`;
   const { OPEN_FINANCE, CASH_FORECAST, MULTI_PROFILE } = flags;
   const openFinanceEnabled = premiumAllowed || OPEN_FINANCE;
   const cashForecastEnabled = premiumAllowed || CASH_FORECAST;
   const multiProfileEnabled = premiumAllowed || MULTI_PROFILE;
+  const openFinanceLockDescription = trialActive
+    ? trialMessage
+    : "Conecte contas bancárias e sincronize ativos liberando o plano Pro.";
+  const cashForecastLockDescription = trialActive
+    ? trialMessage
+    : "Ative projeções semanais e alertas liberando o plano Premium.";
+  const multiProfileLockDescription = trialActive
+    ? trialMessage
+    : "Disponível no plano Premium para contas familiares e squads.";
+
+  useEffect(() => {
+    if (premiumLoading) return;
+    if (openFinanceEnabled && cashForecastEnabled && multiProfileEnabled) return;
+
+    console.warn("[Dashboard] feature gate ativo", {
+      userId: user?.id ?? null,
+      plan: effectiveTier,
+      trialEndsAt: trialExpiresAt,
+      now: new Date().toISOString(),
+      gates: {
+        openFinanceLocked: !openFinanceEnabled,
+        cashForecastLocked: !cashForecastEnabled,
+        multiProfileLocked: !multiProfileEnabled,
+      },
+    });
+  }, [
+    premiumLoading,
+    openFinanceEnabled,
+    cashForecastEnabled,
+    multiProfileEnabled,
+    user?.id,
+    effectiveTier,
+    trialExpiresAt,
+  ]);
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -169,7 +214,7 @@ export default function Dashboard() {
         ) : premiumLoading ? null : (
           <FeatureLock
             title="Integrações Open Finance"
-            description="Conecte contas bancárias e sincronize ativos liberando o plano Pro."
+            description={openFinanceLockDescription}
           />
         )}
 
@@ -196,7 +241,7 @@ export default function Dashboard() {
         ) : premiumLoading ? null : (
           <FeatureLock
             title="Forecast de caixa"
-            description="Ative projeções semanais e alertas liberando o plano Premium."
+            description={cashForecastLockDescription}
           />
         )}
       </div>
@@ -223,7 +268,7 @@ export default function Dashboard() {
         ) : premiumLoading ? null : (
           <FeatureLock
             title="Multi perfis"
-            description="Disponível no plano Premium para contas familiares e squads."
+            description={multiProfileLockDescription}
           />
         )}
       </div>

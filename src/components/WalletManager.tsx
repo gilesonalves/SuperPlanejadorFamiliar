@@ -32,6 +32,7 @@ import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage"
 import { cn } from "@/lib/utils";
 import { goCheckout } from "@/lib/checkout";
 import { usePremiumAccess } from "@/hooks/usePremiumAccess";
+import { useAuth } from "@/hooks/useAuth";
 import type { PortfolioItem } from "@/hooks/usePortfolio";
 type Totals = {
   valor: number;
@@ -134,7 +135,8 @@ const WalletManager = () => {
   const { toast } = useToast();
   const { flags, loading: featureFlagsLoading } = useFeatureFlags();
   const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
-  const { loading: entitlementsLoading, tier, has, trialExpiresAt } = useEntitlements();
+  const { loading: entitlementsLoading, effectiveTier, has, trialExpiresAt } = useEntitlements();
+  const { user } = useAuth();
   const gatingLoading = featureFlagsLoading || premiumLoading;
   const entitlementsReady = !entitlementsLoading;
   const cardsModuleEnabled = premiumAllowed || flags.CARDS_MODULE;
@@ -174,13 +176,61 @@ const WalletManager = () => {
       setView("table");
     }
   }, [cardsLocked, view]);
-  const upgradeTitle = tier === "free" ? "Desbloqueie relatórios" : "Seu teste terminou";
-  const upgradeDescription =
-    tier === "free"
-      ? "Assine para liberar relatórios e dashboards."
-      : "Faça upgrade para continuar usando relatórios e dashboards.";
+  const trialActive = effectiveTier === "trial";
   const trialExpiryLabel =
-    tier === "trial" && trialExpiresAt ? new Date(trialExpiresAt).toLocaleDateString() : null;
+    trialActive && trialExpiresAt
+      ? new Date(trialExpiresAt).toLocaleDateString()
+      : null;
+  const upgradeTitle =
+    effectiveTier === "free"
+      ? "Desbloqueie relatórios"
+      : trialActive
+        ? "Teste gratuito ativo"
+        : "Seu teste terminou";
+  const upgradeDescription =
+    effectiveTier === "free"
+      ? "Assine para liberar relatórios e dashboards."
+      : trialActive
+        ? `Teste gratuito com todos os recursos até ${trialExpiryLabel ?? "o fim do período"}`
+        : "Faça upgrade para continuar usando relatórios e dashboards.";
+
+  useEffect(() => {
+    if (gatingLoading || !entitlementsReady) return;
+    if (
+      !cardsLocked &&
+      !goalsLocked &&
+      !reportsLocked &&
+      !exportsLocked &&
+      !openFinanceLocked
+    ) {
+      return;
+    }
+
+    console.warn("[WalletManager] feature gate ativo", {
+      userId: user?.id ?? null,
+      plan: effectiveTier,
+      trialEndsAt: trialExpiresAt,
+      now: new Date().toISOString(),
+      locks: {
+        cardsLocked,
+        goalsLocked,
+        reportsLocked,
+        exportsLocked,
+        openFinanceLocked,
+      },
+    });
+  }, [
+    gatingLoading,
+    entitlementsReady,
+    cardsLocked,
+    goalsLocked,
+    reportsLocked,
+    exportsLocked,
+    openFinanceLocked,
+    user?.id,
+    effectiveTier,
+    trialExpiresAt,
+  ]);
   const tickerPlaceholder =
     newItem.assetClass === "FII"
       ? "Ex: MXRF11"

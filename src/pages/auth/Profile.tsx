@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,13 +6,35 @@ import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
 import { usePremiumAccess } from "@/hooks/usePremiumAccess";
 import { useAuth, signOut } from "@/hooks/useAuth";
+import { useEntitlements } from "@/hooks/useEntitlements";
 
 const ProfilePage = () => {
   const { user } = useAuth();
   const { flags } = useFeatureFlags();
   const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
+  const { effectiveTier, trialExpiresAt } = useEntitlements();
   const multiProfileEnabled = premiumAllowed || flags.MULTI_PROFILE;
   const multiProfileLocked = !multiProfileEnabled && !premiumLoading;
+  const trialActive = effectiveTier === "trial";
+  const trialExpiryLabel =
+    trialActive && trialExpiresAt
+      ? new Date(trialExpiresAt).toLocaleDateString()
+      : null;
+  const multiProfileLockDescription = trialActive
+    ? `Teste gratuito ativo até ${trialExpiryLabel ?? "o fim do período"}.`
+    : "Disponível nos planos Premium para gerenciar finanças familiares e de clientes.";
+
+  useEffect(() => {
+    if (!user) return;
+    if (!multiProfileLocked) return;
+
+    console.warn("[Profile] feature gate ativo", {
+      userId: user.id,
+      plan: effectiveTier,
+      trialEndsAt: trialExpiresAt,
+      now: new Date().toISOString(),
+    });
+  }, [user, multiProfileLocked, effectiveTier, trialExpiresAt]);
 
   if (!user) {
     return (
@@ -52,7 +75,7 @@ const ProfilePage = () => {
       {multiProfileLocked ? (
         <FeatureLock
           title="Multi perfis bloqueado"
-          description="Disponível nos planos Premium para gerenciar finanças familiares e de clientes."
+          description={multiProfileLockDescription}
         />
       ) : !multiProfileEnabled ? null : (
         <Card>

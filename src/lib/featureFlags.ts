@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { getEffectiveTier as resolveEffectiveTier } from "@/lib/utils";
 
 export type Tier = "free" | "trial" | "pro" | "premium";
 
@@ -14,7 +15,6 @@ export const FEATURE_FLAG_KEYS = [
 ] as const;
 
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
-
 export type FeatureFlags = Record<FeatureFlagKey, boolean>;
 
 const truthyPattern = /^(1|true|on|yes)$/i;
@@ -66,6 +66,13 @@ const normalizeFlags = (
   }, { ...defaults });
 };
 
+// helper: todos os flags em true
+const allTrueFlags = (): FeatureFlags =>
+  FEATURE_FLAG_KEYS.reduce<FeatureFlags>((acc, k) => {
+    acc[k] = true;
+    return acc;
+  }, {} as FeatureFlags);
+
 export async function getUserFlags(userId?: string): Promise<FeatureFlags> {
   const defaults = getDefaultFlags();
 
@@ -90,7 +97,17 @@ export async function getUserFlags(userId?: string): Promise<FeatureFlags> {
       return defaults;
     }
 
-    return normalizeFlags(defaults, data?.flags ?? undefined);
+    // flags normalizados (defaults + overrides do banco)
+    const normalized = normalizeFlags(defaults, data?.flags ?? undefined);
+
+    // >>> AQUI está a liberação total no TRIAL <<<
+    // Consulta o tier efetivo e, se for 'trial', libera tudo.
+    const effectiveTier = await getEffectiveTier();
+    if (effectiveTier === "trial") {
+      return allTrueFlags();
+    }
+
+    return normalized;
   } catch (error) {
     console.warn("featureFlags:getUserFlags", error);
     return defaults;
@@ -176,15 +193,13 @@ export async function getEffectiveTier(): Promise<Tier> {
     }
 
     if (entitlements) {
-      const tier = entitlements.plan_tier?.toLowerCase();
-      if (tier === "premium" || tier === "pro") {
-        return tier;
-      }
-      if (tier === "trial") {
-        const endsAt = entitlements.trial_ends_at ? new Date(entitlements.trial_ends_at) : null;
-        if (endsAt && endsAt > now) {
-          return "trial";
-        }
+      const effective = resolveEffectiveTier({
+        plan_tier: entitlements.plan_tier,
+        trial_ends_at: entitlements.trial_ends_at,
+      });
+
+      if (effective === "premium" || effective === "pro" || effective === "trial") {
+        return effective as Tier;
       }
     }
 
