@@ -53,19 +53,31 @@ const LoginPage = () => {
     }
   };
 
-  const handleGoogle = async () => {
+  const handleSignInWithGoogle = async () => {
     if (!supabase) {
       notifyMissingConfig();
       return;
     }
 
     try {
-      await supabase.auth.signInWithOAuth({
+      const { error } = await supabase.auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: window.location.origin },
+        options: {
+          redirectTo: "https://app.heygar.com.br",
+        },
       });
+
+      if (error) {
+        console.error("[OAuth Google] erro:", error);
+        toast({
+          variant: "destructive",
+          title: "Falha no login",
+          description: error.message,
+        });
+      }
     } catch (error) {
       const description = error instanceof Error ? error.message : "Erro inesperado";
+      console.error("[OAuth Google] erro:", error);
       toast({ variant: "destructive", title: "Falha no login", description });
     }
   };
@@ -107,7 +119,7 @@ const LoginPage = () => {
               {loading ? "Entrando..." : "Entrar"}
             </Button>
           </form>
-          <Button type="button" variant="outline" className="mt-4 w-full" onClick={handleGoogle}>
+          <Button type="button" variant="outline" className="mt-4 w-full" onClick={handleSignInWithGoogle}>
             Entrar com Google
           </Button>
         </CardContent>

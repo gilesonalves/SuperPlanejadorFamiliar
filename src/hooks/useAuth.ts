@@ -99,10 +99,11 @@ export async function signInEmailPassword(email: string, password: string) {
  *   Se você tiver uma rota específica para callback, ajuste aqui.
  */
 export async function signInWithGoogle() {
-  const redirectTo = window.location.origin; // ajuste se tiver /login-callback
   const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
-    options: { redirectTo },
+    options: {
+      redirectTo: "https://app.heygar.com.br",
+    },
   });
   return error?.message ?? null;
 }
