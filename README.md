@@ -60,6 +60,26 @@ This project is built with:
 - shadcn-ui
 - Tailwind CSS
 
+## Environment configuration
+
+Set the following variables locally (`.env`) and in Vercel before building:
+
+- `VITE_SUPABASE_URL` — always the Supabase project domain (`https://<PROJECT>.supabase.co`).
+- `VITE_SUPABASE_ANON_KEY` — the Supabase anon key.
+- `VITE_APP_ORIGIN` — optional, helps OAuth redirects (e.g. `http://localhost:5173` in dev and `https://app.heygar.com.br` in production).
+
+> Never point `VITE_SUPABASE_URL` to `https://app.heygar.com.br`; that URL is the frontend origin, not the Supabase project.
+
+## Google OAuth & Supabase Auth
+
+1. In the Google Cloud Console, configure the OAuth consent screen and credentials with:
+   - **Authorized JavaScript origins**: your dev origin (`http://localhost:<PORTA>`) and `https://app.heygar.com.br`.
+   - **Authorized redirect URIs**: `https://<PROJECT>.supabase.co/auth/v1/callback`.
+2. In Supabase > Auth > URL Configuration:
+   - **Site URL**: `https://app.heygar.com.br`.
+   - **Redirect URLs**: include `https://app.heygar.com.br/*` and any local URLs used during development.
+3. Confirm that the anon key is safe to expose (it is by design) and that the service role key is never bundled in the frontend.
+
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/4cbe48e4-069f-4670-ac9b-0c842b28ba76) and click on Share -> Publish.

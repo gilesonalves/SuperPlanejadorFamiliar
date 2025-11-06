@@ -25,14 +25,14 @@ const ProfilePage = () => {
     : "Disponível nos planos Premium para gerenciar finanças familiares e de clientes.";
 
   useEffect(() => {
-    if (!user) return;
-    if (!multiProfileLocked) return;
+    if (!user || !multiProfileLocked) return;
 
-    console.warn("[Profile] feature gate ativo", {
+    console.warn("[Gate] closed", {
       userId: user.id,
       plan: effectiveTier,
       trialEndsAt: trialExpiresAt,
       now: new Date().toISOString(),
+      gateKey: "profile-multi",
     });
   }, [user, multiProfileLocked, effectiveTier, trialExpiresAt]);
 

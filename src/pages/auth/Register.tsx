@@ -1,121 +1,66 @@
-import { FormEvent, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
-import { ensureTrial } from "@/lib/ensureTrial";
+import { useToast } from "@/hooks/use-toast";
 
-const missingConfigMessage = "Configure VITE_SUPABASE_URL/ANON_KEY";
+const APP_PROD_URL = "https://app.heygar.com.br";
 
 const RegisterPage = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
 
-  const notifyMissingConfig = () =>
-    toast({
-      variant: "destructive",
-      title: "Supabase nao configurado",
-      description: missingConfigMessage,
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      navigate("/login", { replace: false });
+    }, 10_000);
+    return () => window.clearTimeout(timer);
+  }, [navigate]);
+
+  const redirectTo =
+    import.meta.env.DEV
+      ? import.meta.env.VITE_APP_ORIGIN ?? window.location.origin
+      : APP_PROD_URL;
+
+  const handleSignInWithGoogle = async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo,
+        queryParams: { prompt: "select_account" },
+      },
     });
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (password !== confirmPassword) {
-      toast({ variant: "destructive", description: "As senhas precisam coincidir." });
-      return;
-    }
-
-    if (!supabase) {
-      notifyMissingConfig();
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const { data, error } = await supabase.auth.signUp({ email, password });
-      if (error) {
-        toast({ variant: "destructive", title: "Falha no cadastro", description: error.message });
-        return;
-      }
-      if (data?.user?.id) {
-        ensureTrial(supabase, data.user.id).catch((err) => {
-          console.error("[ensureTrial after register]", err);
-        });
-      }
+    if (error) {
+      console.error("[Register] Google OAuth error:", error.message);
       toast({
-        title: "Cadastro realizado",
-        description: "Enviamos um e-mail para confirmar sua conta.",
+        variant: "destructive",
+        title: "Não foi possível iniciar o cadastro",
+        description: error.message,
       });
-      navigate("/login");
-    } catch (error) {
-      const description = error instanceof Error ? error.message : "Erro inesperado";
-      toast({ variant: "destructive", title: "Falha no cadastro", description });
-    } finally {
-      setLoading(false);
     }
   };
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md">
-        <CardHeader>
+        <CardHeader className="space-y-2">
           <CardTitle className="text-2xl">Criar conta</CardTitle>
+          <CardDescription>
+            Use o botão abaixo para continuar com sua conta Google.
+            Vamos redirecionar você para a tela de login automaticamente.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1">
-              <Label htmlFor="email">E-mail</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="password">Senha</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="confirm">Confirmar senha</Label>
-              <Input
-                id="confirm"
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                required
-                minLength={6}
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Enviando..." : "Criar conta"}
-            </Button>
-          </form>
+        <CardContent className="space-y-4">
+          <Button className="w-full" onClick={handleSignInWithGoogle}>
+            Entrar com Google
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Preferimos OAuth para garantir que o trial seja ativado imediatamente e sem
+            trocas de senha.
+          </p>
         </CardContent>
-        <CardFooter className="text-sm">
-          <span className="text-muted-foreground">
-            Ja possui conta?{" "}
-            <Link to="/login" className="text-primary hover:underline">
-              Acesse sua conta
-            </Link>
-          </span>
-        </CardFooter>
       </Card>
     </div>
   );

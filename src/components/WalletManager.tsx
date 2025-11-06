@@ -196,29 +196,25 @@ const WalletManager = () => {
 
   useEffect(() => {
     if (gatingLoading || !entitlementsReady) return;
-    if (
-      !cardsLocked &&
-      !goalsLocked &&
-      !reportsLocked &&
-      !exportsLocked &&
-      !openFinanceLocked
-    ) {
-      return;
-    }
 
-    console.warn("[WalletManager] feature gate ativo", {
-      userId: user?.id ?? null,
-      plan: effectiveTier,
-      trialEndsAt: trialExpiresAt,
-      now: new Date().toISOString(),
-      locks: {
-        cardsLocked,
-        goalsLocked,
-        reportsLocked,
-        exportsLocked,
-        openFinanceLocked,
-      },
-    });
+    const nowIso = new Date().toISOString();
+    [
+      { key: "wallet-cards", locked: cardsLocked },
+      { key: "wallet-goals", locked: goalsLocked },
+      { key: "wallet-reports", locked: reportsLocked },
+      { key: "wallet-exports", locked: exportsLocked },
+      { key: "wallet-open-finance", locked: openFinanceLocked },
+    ]
+      .filter((gate) => gate.locked)
+      .forEach((gate) => {
+        console.warn("[Gate] closed", {
+          userId: user?.id ?? null,
+          plan: effectiveTier,
+          trialEndsAt: trialExpiresAt,
+          now: nowIso,
+          gateKey: gate.key,
+        });
+      });
   }, [
     gatingLoading,
     entitlementsReady,

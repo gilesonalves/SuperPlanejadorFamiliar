@@ -47,19 +47,23 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (premiumLoading) return;
-    if (openFinanceEnabled && cashForecastEnabled && multiProfileEnabled) return;
 
-    console.warn("[Dashboard] feature gate ativo", {
-      userId: user?.id ?? null,
-      plan: effectiveTier,
-      trialEndsAt: trialExpiresAt,
-      now: new Date().toISOString(),
-      gates: {
-        openFinanceLocked: !openFinanceEnabled,
-        cashForecastLocked: !cashForecastEnabled,
-        multiProfileLocked: !multiProfileEnabled,
-      },
-    });
+    const nowIso = new Date().toISOString();
+    [
+      { key: "open-finance", locked: !openFinanceEnabled },
+      { key: "cash-forecast", locked: !cashForecastEnabled },
+      { key: "multi-profile", locked: !multiProfileEnabled },
+    ]
+      .filter((gate) => gate.locked)
+      .forEach((gate) => {
+        console.warn("[Gate] closed", {
+          userId: user?.id ?? null,
+          plan: effectiveTier,
+          trialEndsAt: trialExpiresAt,
+          now: nowIso,
+          gateKey: gate.key,
+        });
+      });
   }, [
     premiumLoading,
     openFinanceEnabled,

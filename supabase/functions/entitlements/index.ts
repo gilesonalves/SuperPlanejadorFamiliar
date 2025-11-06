@@ -1,18 +1,11 @@
-import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { serve } from "https://deno.land/std/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.5";
 
 type Tier = "free" | "trial" | "pro" | "premium";
 type EntitlementsResponse = {
   tier: Tier;
   features: string[];
   trial_expires_at: string | null;
-};
-
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "content-type": "application/json; charset=utf-8",
 };
 
 // Mapa de recursos por tier (trial libera tudo do Premium)
@@ -23,49 +16,48 @@ const FEATURE_MAP: Record<Tier, string[]> = {
   premium: ["basic", "reports", "dashboards", "autosuggestions", "exports", "multi_profile", "priority_support"],
 };
 
+const JSON_HEADERS = {
+  "content-type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
 serve(async (req) => {
   try {
     // CORS preflight
     if (req.method === "OPTIONS") {
-      return new Response("ok", { headers: CORS_HEADERS });
+      return new Response(null, { status: 204, headers: JSON_HEADERS });
     }
-
-    // Detecta ambiente local
-    const isLocal =
-      (Deno.env.get("SUPABASE_URL") || "").includes("127.0.0.1:54321") ||
-      new URL(req.url).hostname === "127.0.0.1" ||
-      new URL(req.url).hostname === "localhost";
-
-    // Extrai Authorization (case-insensitive)
-    const rawAuth =
-      req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
-    const tokenMatch = rawAuth.match(/^Bearer\s+(.+)$/i);
-    const accessToken = tokenMatch?.[1] ?? null;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const anonKey     = Deno.env.get("SUPABASE_ANON_KEY"); // usa ANON para manter o contexto do usuário (RLS)
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
 
     if (!supabaseUrl || !anonKey) {
-      return new Response(JSON.stringify({ error: "Missing Supabase env" }), {
+      return new Response(JSON.stringify({ error: "missing_env" }), {
         status: 500,
-        headers: CORS_HEADERS,
+        headers: JSON_HEADERS,
       });
     }
 
-    // Sem token: em local devolve "free"; em produção, 401
-    if (!accessToken && !isLocal) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: CORS_HEADERS,
-      });
-    }
-    if (!accessToken && isLocal) {
+    const authHeader =
+      req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    const accessToken = bearerMatch?.[1] ?? "";
+    const lowerHost = new URL(req.url).hostname.toLowerCase();
+    const isLocalHost =
+      lowerHost === "localhost" ||
+      lowerHost === "127.0.0.1" ||
+      lowerHost.endsWith(".localhost");
+
+    // Fallback "free" quando não houver Authorization ou quando for o ANON key
+    if (!accessToken || accessToken === anonKey || (isLocalHost && !accessToken)) {
       const body: EntitlementsResponse = {
         tier: "free",
         features: FEATURE_MAP.free,
         trial_expires_at: null,
       };
-      return new Response(JSON.stringify(body), { headers: CORS_HEADERS });
+      return new Response(JSON.stringify(body), { headers: JSON_HEADERS });
     }
 
     // Client no CONTEXTO DO USUÁRIO (RLS respeitado)
@@ -76,9 +68,9 @@ serve(async (req) => {
     // 1) Descobre o usuário
     const { data: u, error: userErr } = await sbUser.auth.getUser();
     if (userErr || !u?.user?.id) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
-        headers: CORS_HEADERS,
+        headers: JSON_HEADERS,
       });
     }
     const userId = u.user.id;
@@ -136,11 +128,11 @@ serve(async (req) => {
       trial_expires_at: ent?.trial_ends_at ?? null,
     };
 
-    return new Response(JSON.stringify(body), { headers: CORS_HEADERS });
+    return new Response(JSON.stringify(body), { headers: JSON_HEADERS });
   } catch (err) {
-    return new Response(JSON.stringify({ error: String(err) }), {
+    return new Response(JSON.stringify({ error: "internal_error", details: String(err) }), {
       status: 500,
-      headers: CORS_HEADERS,
+      headers: JSON_HEADERS,
     });
   }
 });

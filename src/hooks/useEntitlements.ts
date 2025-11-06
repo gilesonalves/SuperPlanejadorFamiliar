@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
 import { getEffectiveTier } from "@/lib/utils";
-import { useAuth } from "@/hooks/useAuth"; // ajuste o caminho se seu hook estiver em outro lugar
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
+import {
+  fetchEntitlements,
+  type FetchEntitlementsError,
+} from "@/lib/fetchEntitlements";
 
 export type Tier = "free" | "trial" | "pro" | "premium";
 
@@ -34,7 +38,7 @@ export function useEntitlements() {
   // quando o ensureTrial terminou e devemos refazer o fetch
   const { user, trialEnsuredAt } = useAuth();
 
-  const fetchEntitlements = useCallback(async () => {
+  const loadEntitlements = useCallback(async () => {
     try {
       setState((prev) => ({ ...prev, loading: true }));
 
@@ -42,41 +46,7 @@ export function useEntitlements() {
         data: { session },
       } = await supabase.auth.getSession();
 
-      // Se não há sessão, não é erro — apenas estado "free"
-      if (!session?.access_token) {
-        setState({
-          loading: false,
-          tier: "free",
-          effectiveTier: "free",
-          features: [],
-          trialExpiresAt: null,
-        });
-        return;
-      }
-
-      const token = session.access_token;
-
-      const response = await fetch("/functions/v1/entitlements", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      // 401/403: trata como "free", sem quebrar a UX
-      if (response.status === 401 || response.status === 403) {
-        setState({
-          loading: false,
-          tier: "free",
-          effectiveTier: "free",
-          features: [],
-          trialExpiresAt: null,
-        });
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(`Failed to load entitlements (${response.status})`);
-      }
-
-      const json = (await response.json()) as EntitlementsResponse;
+      const json = await fetchEntitlements<EntitlementsResponse>(session?.access_token ?? null);
 
       const trialExpiresAt = json.trial_expires_at ?? null;
       const effectiveTier = getEffectiveTier({
@@ -92,7 +62,11 @@ export function useEntitlements() {
         trialExpiresAt,
       });
     } catch (error) {
-      console.error("useEntitlements error", error);
+      const typed = error as Partial<FetchEntitlementsError> | null | undefined;
+      console.warn("[entitlements] fail", {
+        kind: typeof typed?.kind === "string" ? typed.kind : "unknown",
+        status: typeof typed?.status === "number" ? typed.status : undefined,
+      });
       setState({
         loading: false,
         tier: "free",
@@ -107,8 +81,8 @@ export function useEntitlements() {
   // 2) recarrega quando o usuário troca
   // 3) recarrega quando o ensureTrial terminar (trialEnsuredAt muda)
   useEffect(() => {
-    fetchEntitlements();
-  }, [fetchEntitlements, user?.id, trialEnsuredAt]);
+    loadEntitlements();
+  }, [loadEntitlements, user?.id, trialEnsuredAt]);
 
   const has = useMemo(
     () => (feature: string) => state.features.includes(feature),
@@ -122,6 +96,6 @@ export function useEntitlements() {
     features: state.features,
     trialExpiresAt: state.trialExpiresAt,
     has,
-    refetch: fetchEntitlements, // opcional: expõe refetch manual
+    refetch: loadEntitlements, // opcional: expõe refetch manual
   };
 }

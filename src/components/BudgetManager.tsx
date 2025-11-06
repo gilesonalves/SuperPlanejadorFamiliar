@@ -73,15 +73,22 @@ const BudgetManager = () => {
 
   useEffect(() => {
     if (flagsLoading || premiumLoading) return;
-    if (!categoryLimitsLocked && !cashForecastLocked) return;
 
-    console.warn("[BudgetManager] feature gate ativo", {
-      userId: user?.id ?? null,
-      plan: effectiveTier,
-      trialEndsAt: trialExpiresAt,
-      now: new Date().toISOString(),
-      locks: { categoryLimitsLocked, cashForecastLocked },
-    });
+    const nowIso = new Date().toISOString();
+    [
+      { key: "budget-category-limits", locked: categoryLimitsLocked },
+      { key: "budget-cash-forecast", locked: cashForecastLocked },
+    ]
+      .filter((gate) => gate.locked)
+      .forEach((gate) => {
+        console.warn("[Gate] closed", {
+          userId: user?.id ?? null,
+          plan: effectiveTier,
+          trialEndsAt: trialExpiresAt,
+          now: nowIso,
+          gateKey: gate.key,
+        });
+      });
   }, [
     flagsLoading,
     premiumLoading,

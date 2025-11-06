@@ -1,32 +1,28 @@
-import { useEffect, useState } from "react";
-import { getEffectiveTier } from "@/lib/featureFlags";
+import { useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useEntitlements } from "@/hooks/useEntitlements";
 
 const PREMIUM_TIERS = new Set(["trial", "pro", "premium"]);
 
 export function usePremiumAccess() {
   const { user, trialEnsuredAt } = useAuth();
-  const [state, setState] = useState({ loading: true, allowed: false });
+  const { loading, effectiveTier, trialExpiresAt } = useEntitlements();
+
+  const allowed = PREMIUM_TIERS.has(
+    typeof effectiveTier === "string" ? effectiveTier : "free",
+  );
 
   useEffect(() => {
-    let active = true;
+    if (loading || allowed) return;
 
-    setState((prev) => ({ ...prev, loading: true }));
-    getEffectiveTier()
-      .then((tier) => {
-        if (!active) return;
-        setState({ loading: false, allowed: PREMIUM_TIERS.has(tier) });
-      })
-      .catch((error) => {
-        if (!active) return;
-        console.error("[usePremiumAccess] failed to resolve premium access:", error);
-        setState({ loading: false, allowed: false });
-      });
+    console.warn("[Gate] closed", {
+      userId: user?.id ?? null,
+      plan: effectiveTier,
+      trialEndsAt: trialExpiresAt,
+      now: new Date().toISOString(),
+      gateKey: "premium",
+    });
+  }, [allowed, loading, user?.id, effectiveTier, trialExpiresAt, trialEnsuredAt]);
 
-    return () => {
-      active = false;
-    };
-  }, [user?.id, trialEnsuredAt]);
-
-  return { loading: state.loading, allowed: state.allowed };
+  return { loading, allowed };
 }
