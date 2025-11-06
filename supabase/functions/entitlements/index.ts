@@ -16,18 +16,32 @@ const FEATURE_MAP: Record<Tier, string[]> = {
   premium: ["basic", "reports", "dashboards", "autosuggestions", "exports", "multi_profile", "priority_support"],
 };
 
-const JSON_HEADERS = {
-  "content-type": "application/json",
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-};
+const ALLOWED_ORIGINS = [
+  "https://app.heygar.com.br",
+  "http://localhost:8080",
+];
+
+function corsHeaders(origin: string | null) {
+  const allowOrigin = origin && ALLOWED_ORIGINS.includes(origin)
+    ? origin
+    : "https://app.heygar.com.br";
+
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    Vary: "Origin",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, content-type",
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json; charset=utf-8",
+  };
+}
 
 serve(async (req) => {
+  const origin = req.headers.get("origin");
+
   try {
-    // CORS preflight
     if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: JSON_HEADERS });
+      return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
@@ -36,46 +50,45 @@ serve(async (req) => {
     if (!supabaseUrl || !anonKey) {
       return new Response(JSON.stringify({ error: "missing_env" }), {
         status: 500,
-        headers: JSON_HEADERS,
+        headers: corsHeaders(origin),
       });
     }
 
-    const authHeader =
-      req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
+    const authHeader = req.headers.get("authorization") ?? req.headers.get("Authorization") ?? "";
     const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
     const accessToken = bearerMatch?.[1] ?? "";
+
     const lowerHost = new URL(req.url).hostname.toLowerCase();
     const isLocalHost =
       lowerHost === "localhost" ||
       lowerHost === "127.0.0.1" ||
       lowerHost.endsWith(".localhost");
 
-    // Fallback "free" quando não houver Authorization ou quando for o ANON key
     if (!accessToken || accessToken === anonKey || (isLocalHost && !accessToken)) {
       const body: EntitlementsResponse = {
         tier: "free",
         features: FEATURE_MAP.free,
         trial_expires_at: null,
       };
-      return new Response(JSON.stringify(body), { headers: JSON_HEADERS });
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: corsHeaders(origin),
+      });
     }
 
-    // Client no CONTEXTO DO USUÁRIO (RLS respeitado)
     const sbUser = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: `Bearer ${accessToken}` } },
     });
 
-    // 1) Descobre o usuário
     const { data: u, error: userErr } = await sbUser.auth.getUser();
     if (userErr || !u?.user?.id) {
       return new Response(JSON.stringify({ error: "unauthorized" }), {
         status: 401,
-        headers: JSON_HEADERS,
+        headers: corsHeaders(origin),
       });
     }
     const userId = u.user.id;
 
-    // 2) Busca assinatura mais recente
     const { data: sub, error: subErr } = await sbUser
       .from("subscriptions")
       .select("status, plan_id, current_period_end")
@@ -88,7 +101,6 @@ serve(async (req) => {
       console.warn("[entitlements] subscriptions error:", subErr);
     }
 
-    // 3) Busca trial
     const { data: ent, error: entErr } = await sbUser
       .from("user_entitlements")
       .select("plan_tier, trial_ends_at")
@@ -99,7 +111,6 @@ serve(async (req) => {
       console.warn("[entitlements] user_entitlements error:", entErr);
     }
 
-    // 4) Resolve tier efetivo
     const now = Date.now();
     let tier: Tier = "free";
 
@@ -112,14 +123,10 @@ serve(async (req) => {
       const plan = (sub?.plan_id ?? "").toLowerCase();
       if (plan.includes("premium")) tier = "premium";
       else if (plan.includes("pro")) tier = "pro";
-      else tier = "pro"; // fallback
+      else tier = "pro";
     } else {
       const trialEnds = ent?.trial_ends_at ? Date.parse(ent.trial_ends_at) : 0;
-      if (trialEnds && trialEnds > now) {
-        tier = "trial";
-      } else {
-        tier = "free";
-      }
+      tier = trialEnds && trialEnds > now ? "trial" : "free";
     }
 
     const body: EntitlementsResponse = {
@@ -128,11 +135,18 @@ serve(async (req) => {
       trial_expires_at: ent?.trial_ends_at ?? null,
     };
 
-    return new Response(JSON.stringify(body), { headers: JSON_HEADERS });
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: corsHeaders(origin),
+    });
   } catch (err) {
-    return new Response(JSON.stringify({ error: "internal_error", details: String(err) }), {
+    const message = typeof err === "object" && err !== null && "message" in err
+      ? String((err as { message?: unknown }).message)
+      : String(err);
+
+    return new Response(JSON.stringify({ error: message, code: "internal" }), {
       status: 500,
-      headers: JSON_HEADERS,
+      headers: corsHeaders(origin),
     });
   }
 });

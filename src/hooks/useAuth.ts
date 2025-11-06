@@ -83,14 +83,23 @@ export async function signOut() {
  *   (o hook também rodará por conta do onAuthStateChange, então aqui é redundante
  *   mas ajuda na experiência imediatamente após o login via senha).
  */
-export async function signInEmailPassword(email: string, password: string) {
+export async function signInWithPassword(
+  email: string,
+  password: string,
+): Promise<{ ok: boolean; message?: string }> {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (!error && data.user) {
-    ensureTrial(supabase, data.user.id).catch((err) => {
-      console.error("[ensureTrial after signInEmailPassword]", err);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  const userId = data.user?.id ?? null;
+  if (userId) {
+    ensureTrial(supabase, userId).catch((err) => {
+      console.error("[ensureTrial after signInWithPassword]", err);
     });
   }
-  return error?.message ?? null;
+
+  return { ok: true };
 }
 
 /**
@@ -101,7 +110,7 @@ export async function signInEmailPassword(email: string, password: string) {
 export async function signInWithGoogle() {
   const redirectTo =
     import.meta.env.DEV
-      ? import.meta.env.VITE_APP_ORIGIN ?? window.location.origin
+      ? import.meta.env.VITE_APP_ORIGIN ?? "http://localhost:8080"
       : "https://app.heygar.com.br";
 
   const { error } = await supabase.auth.signInWithOAuth({
@@ -118,14 +127,23 @@ export async function signInWithGoogle() {
  * Cadastro com e-mail/senha.
  * - Em caso de sucesso, dispara ensureTrial para o novo usuário.
  */
-export async function signUpEmailPassword(email: string, password: string) {
+export async function signUpWithEmail(
+  email: string,
+  password: string,
+): Promise<{ ok: boolean; message?: string }> {
   const { data, error } = await supabase.auth.signUp({ email, password });
-  if (!error && data?.user?.id) {
-    ensureTrial(supabase, data.user.id).catch((err) => {
-      console.error("[ensureTrial after signUpEmailPassword]", err);
+  if (error) {
+    return { ok: false, message: error.message };
+  }
+
+  const userId = data?.user?.id ?? null;
+  if (userId) {
+    ensureTrial(supabase, userId).catch((err) => {
+      console.error("[ensureTrial after signUpWithEmail]", err);
     });
   }
-  return error?.message ?? null;
+
+  return { ok: true };
 }
 
 /**

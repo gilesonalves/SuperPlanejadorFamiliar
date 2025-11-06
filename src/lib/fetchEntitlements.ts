@@ -36,7 +36,7 @@ export async function fetchEntitlements<T = unknown>(
       "content-type": JSON_HEADER,
       ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
     },
-    body: JSON.stringify({ now: new Date().toISOString() }),
+    body: "{}",
   });
 
   const contentType = response.headers.get("content-type") ?? "";

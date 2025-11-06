@@ -64,21 +64,21 @@ This project is built with:
 
 Set the following variables locally (`.env`) and in Vercel before building:
 
-- `VITE_SUPABASE_URL` — always the Supabase project domain (`https://<PROJECT>.supabase.co`).
-- `VITE_SUPABASE_ANON_KEY` — the Supabase anon key.
-- `VITE_APP_ORIGIN` — optional, helps OAuth redirects (e.g. `http://localhost:5173` in dev and `https://app.heygar.com.br` in production).
+- `VITE_SUPABASE_URL` = `https://<SEU-PROJ>.supabase.co`
+- `VITE_SUPABASE_ANON_KEY` = `<anon key>`
+- `VITE_APP_ORIGIN` = `http://localhost:8080` (opcional para desenvolvimento)
 
-> Never point `VITE_SUPABASE_URL` to `https://app.heygar.com.br`; that URL is the frontend origin, not the Supabase project.
+> Nunca aponte `VITE_SUPABASE_URL` para `https://app.heygar.com.br`; essa URL é a origem do frontend, não do Supabase.
 
 ## Google OAuth & Supabase Auth
 
-1. In the Google Cloud Console, configure the OAuth consent screen and credentials with:
-   - **Authorized JavaScript origins**: your dev origin (`http://localhost:<PORTA>`) and `https://app.heygar.com.br`.
-   - **Authorized redirect URIs**: `https://<PROJECT>.supabase.co/auth/v1/callback`.
-2. In Supabase > Auth > URL Configuration:
+1. No Google Cloud Console:
+   - **Authorized JavaScript origins**: `https://app.heygar.com.br` e `http://localhost:8080`.
+   - **Authorized redirect URIs**: `https://<SEU-PROJ>.supabase.co/auth/v1/callback`.
+2. Em Supabase > Auth > URL Configuration:
    - **Site URL**: `https://app.heygar.com.br`.
-   - **Redirect URLs**: include `https://app.heygar.com.br/*` and any local URLs used during development.
-3. Confirm that the anon key is safe to expose (it is by design) and that the service role key is never bundled in the frontend.
+   - **Redirect URLs**: `https://app.heygar.com.br/*`.
+3. A anon key pode ficar no frontend; nunca versionar a service role.
 
 ## How can I deploy this project?
 
