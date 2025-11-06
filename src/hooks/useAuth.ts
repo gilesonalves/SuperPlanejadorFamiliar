@@ -127,24 +127,41 @@ export async function signInWithGoogle() {
  * Cadastro com e-mail/senha.
  * - Em caso de sucesso, dispara ensureTrial para o novo usuário.
  */
+// src/hooks/useAuth.ts (exemplo)
+// defina um tipo de resultado simples
+type SignUpResult =
+  | { ok: true }
+  | { ok: false; message: string };
+
 export async function signUpWithEmail(
   email: string,
-  password: string,
-): Promise<{ ok: boolean; message?: string }> {
-  const { data, error } = await supabase.auth.signUp({ email, password });
-  if (error) {
-    return { ok: false, message: error.message };
-  }
+  password: string
+): Promise<SignUpResult> {
+  try {
+    const redirectTo: string = import.meta.env.DEV
+      ? (import.meta.env.VITE_APP_ORIGIN ?? 'http://localhost:8080')
+      : 'https://app.heygar.com.br';
 
-  const userId = data?.user?.id ?? null;
-  if (userId) {
-    ensureTrial(supabase, userId).catch((err) => {
-      console.error("[ensureTrial after signUpWithEmail]", err);
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectTo },
     });
-  }
 
-  return { ok: true };
+    if (error) {
+      // `error` já é tipado (AuthError) pelo SDK
+      return { ok: false, message: error.message };
+    }
+
+    return { ok: true };
+  } catch (e: unknown) {
+    const message =
+      e instanceof Error ? e.message : String(e);
+    return { ok: false, message };
+  }
 }
+
+
 
 /**
  * Envia e-mail de reset de senha.
