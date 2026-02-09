@@ -1,5 +1,4 @@
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import type { ShoppingCategory } from "@/services/shopping/types";
@@ -9,7 +8,7 @@ type Props = {
   categories: ShoppingCategory[];
   getTotalByCategory: (id: string) => number;
   totalGeral: number;
-  stats: { total: number; pendentes: number; carrinho: number; comprados: number };
+  stats: { total: number };
 };
 
 const currencyFormatter = new Intl.NumberFormat("pt-BR", {
@@ -17,15 +16,18 @@ const currencyFormatter = new Intl.NumberFormat("pt-BR", {
   currency: "BRL",
 });
 
-const TotalsBar = ({ categories, getTotalByCategory, totalGeral, stats }: Props) => (
-  <Card className="w-full">
-    <CardHeader>
-      <CardTitle className="text-lg">Totais</CardTitle>
-      <p className="text-sm text-muted-foreground">
-        Acompanhe a distribuicao dos gastos por categoria e o progresso das compras
-      </p>
-    </CardHeader>
-    <CardContent className="space-y-6">
+const TotalsBar = ({
+  categories,
+  getTotalByCategory,
+  totalGeral,
+  stats,
+}: Props) => {
+  const totalTone = totalGeral > 0
+    ? "bg-primary/10 text-primary"
+    : "bg-amber-100 text-amber-800";
+
+  return (
+    <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-2">
         {categories
           .slice()
@@ -52,19 +54,23 @@ const TotalsBar = ({ categories, getTotalByCategory, totalGeral, stats }: Props)
 
       <Separator />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="text-sm font-semibold">Total geral:</div>
-        <div className="text-lg font-bold text-primary">{currencyFormatter.format(totalGeral)}</div>
-        <Separator orientation="vertical" className="h-5" />
-        <Badge variant="outline">{stats.total} itens</Badge>
-        <Badge variant="secondary">{stats.pendentes} pendentes</Badge>
-        <Badge variant="outline">{stats.carrinho} no carrinho</Badge>
-        <Badge variant="outline" className="border-success/50 text-success">
-          {stats.comprados} comprados
-        </Badge>
+      <div className="grid gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 sm:grid-cols-[auto,1fr] sm:items-center">
+        <div>
+          <div className="text-xs text-muted-foreground">Total geral</div>
+          <div className="text-lg font-bold text-primary">
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-sm font-semibold ${totalTone}`}
+            >
+              {currencyFormatter.format(totalGeral)}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+          <Badge variant="outline">{stats.total} itens</Badge>
+        </div>
       </div>
-    </CardContent>
-  </Card>
-);
+    </div>
+  );
+};
 
 export default TotalsBar;

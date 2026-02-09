@@ -1,54 +1,94 @@
 import { useState } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { usePortfolio } from "@/hooks/usePortfolio";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useInvestmentAiTips } from "@/hooks/useInvestmentAiTips";
 
 export default function AIHints() {
-  const { state } = usePortfolio();
-  const [loading, setLoading] = useState(false);
-  const [text, setText] = useState("");
+  const [amount, setAmount] = useState("");
+  const [inputError, setInputError] = useState("");
+  const { advice, error, loading, requestTips, hasPortfolio } = useInvestmentAiTips();
+  const quickAmounts = [100, 300, 500];
 
   async function handleAsk() {
-    setLoading(true);
-    try {
-      const payload = state.portfolio.map((item) => ({
-        symbol: item.symbol,
-        class: item.assetClass,
-        sector: item.sector,
-        qty: item.qty,
-        price: item.price,
-      }));
-      const response = await fetch("/api/ai-hints", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ portfolio: payload }),
-      });
-      if (!response.ok) throw new Error("Falha ao pedir dicas");
-      const data = await response.json();
-      setText(String(data?.advice || ""));
-    } catch (error) {
-      setText(error instanceof Error ? error.message : "Nao foi possivel obter dicas agora.");
-    } finally {
-      setLoading(false);
+    const parsed = Number(amount.replace(",", "."));
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setInputError("Informe um valor valido para investir.");
+      return;
     }
+    setInputError("");
+    await requestTips(parsed);
   }
 
+  const handleQuickStart = async (value: number) => {
+    if (loading) return;
+    setAmount(String(value));
+    setInputError("");
+    await requestTips(value);
+  };
+
   return (
-    <Card className="financial-card">
-      <CardHeader className="flex items-center justify-between">
+    <Card className="financial-card w-full p-4 sm:p-6">
+      <CardHeader className="p-0 pb-3">
         <CardTitle>Dicas por IA</CardTitle>
-        <Button size="sm" onClick={handleAsk} disabled={loading}>
-          {loading ? "Gerando..." : "Gerar dicas"}
-        </Button>
       </CardHeader>
-      <CardContent>
-        {!text ? (
+      <CardContent className="space-y-3 p-0">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div className="space-y-1">
+            <Label>Quanto você quer investir agora?</Label>
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={0}
+              placeholder="0,00"
+              value={amount}
+              onChange={(event) => {
+                setAmount(event.target.value);
+                if (inputError) setInputError("");
+              }}
+              disabled={loading}
+            />
+          </div>
+          <Button onClick={handleAsk} disabled={loading}>
+            {loading ? "Gerando..." : "Gerar dica"}
+          </Button>
+        </div>
+
+        {inputError ? <p className="text-sm text-destructive">{inputError}</p> : null}
+        {!hasPortfolio ? (
           <p className="text-sm text-muted-foreground">
-            Conecte um endpoint <code>/api/ai-hints</code> com Groq para gerar sugestões a partir da sua carteira.
+            Você ainda não tem investimentos. Comece agora — a IA pode te ajudar.
           </p>
-        ) : (
-          <div className="prose prose-invert whitespace-pre-wrap text-sm">{text}</div>
-        )}
+        ) : null}
+        {!hasPortfolio ? (
+          <div className="flex flex-wrap gap-2">
+            {quickAmounts.map((value) => (
+              <Button
+                key={value}
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => handleQuickStart(value)}
+                disabled={loading}
+              >
+                Começar com R$ {value}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        {error ? <p className="text-sm text-destructive">{error}</p> : null}
+        {advice ? (
+          <>
+            <div className="prose prose-invert max-w-none whitespace-pre-wrap break-words text-base leading-relaxed md:text-sm max-h-[60vh] overflow-y-auto scroll-smooth md:max-h-none md:overflow-visible prose-p:my-2 prose-ul:my-2 prose-li:my-1">
+              {advice}
+            </div>
+            <p className="text-xs text-muted-foreground opacity-80 leading-snug">
+              ⚠️ Esta é apenas uma sugestão educacional. Não constitui recomendação de investimento.
+              Avalie seu perfil ou consulte um profissional.
+            </p>
+          </>
+        ) : null}
       </CardContent>
     </Card>
   );

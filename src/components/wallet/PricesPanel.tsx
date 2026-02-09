@@ -24,24 +24,24 @@ export default function PricesPanel() {
   if (!rows.length) return null;
 
   return (
-    <Card className="financial-card">
-      <CardHeader>
-        <CardTitle>Ultimos Precos (cache 1x/dia)</CardTitle>
+    <Card className="financial-card p-4 sm:p-6">
+      <CardHeader className="p-0 pb-2 sm:pb-4">
+        <CardTitle className="text-base sm:text-lg">Ultimos precos (cache 1x/dia)</CardTitle>
       </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="min-w-[480px] w-full text-sm">
+      <CardContent className="p-0">
+        <table className="w-full table-fixed text-xs sm:text-sm">
           <thead>
             <tr className="text-muted-foreground">
-              <th className="py-1 text-left">Ticker</th>
-              <th className="py-1 text-right">Preco</th>
-              <th className="py-1 text-right">Origem</th>
+              <th className="py-1 text-left font-medium sm:py-1.5">Ticker</th>
+              <th className="py-1 text-right font-medium sm:py-1.5">Preco</th>
+              <th className="py-1 text-right font-medium sm:py-1.5">Origem</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="text-foreground">
             {rows.map((row) => (
               <tr key={row.symbol} className="border-t border-border/50">
-                <td className="py-1">{row.symbol}</td>
-                <td className="py-1 text-right">
+                <td className="py-1 sm:py-1.5">{row.symbol}</td>
+                <td className="py-1 text-right sm:py-1.5">
                   {row.price == null
                     ? "-"
                     : new Intl.NumberFormat("pt-BR", {
@@ -49,7 +49,7 @@ export default function PricesPanel() {
                         currency: "BRL",
                       }).format(row.price)}
                 </td>
-                <td className="py-1 text-right">{row.when}</td>
+                <td className="py-1 text-right sm:py-1.5">{row.when}</td>
               </tr>
             ))}
           </tbody>

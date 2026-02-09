@@ -212,4 +212,14 @@
     @apply focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
     @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
+
+  .bf-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(1) brightness(1.2);
+    opacity: 1;
+  }
+
+  .light .bf-date-input::-webkit-calendar-picker-indicator {
+    filter: none;
+    opacity: 0.7;
+  }
 }

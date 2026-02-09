@@ -7,6 +7,8 @@ import {
   getCachedDailyQuote,
   setCachedDailyQuote,
   type AppState as StoreAppState,
+  type PortfolioGoal,
+  type RiskProfile,
 } from "@/services/storage";
 import { fetchQuoteSingle, fetchQuotesBatch, fetchQuotesSequential } from "@/services/brapi";
 
@@ -56,6 +58,15 @@ const toNumberSafe = (v: unknown): number => {
 const toAssetClass = (v: unknown): AssetClass => {
   return v === "FII" || v === "ACAO" || v === "CRYPTO" ? v : "FII";
 };
+const toRiskProfile = (v: unknown): RiskProfile => {
+  if (v === "conservador" || v === "moderado" || v === "arrojado") return v;
+  return "moderado";
+};
+const toGoal = (v: unknown): PortfolioGoal => {
+  if (v === "crescimento" || v === "renda-passiva" || v === "preservacao") return v;
+  return "crescimento";
+};
+const toBaseCurrency = (v: unknown): "BRL" => (v === "BRL" ? "BRL" : "BRL");
 const clamp = (v: unknown, min = 0, max = 100): number => {
   const n = Number(v ?? 0);
   if (Number.isNaN(n)) return min;
@@ -88,6 +99,9 @@ function normalizeSettings(settings: SettingsLike): AppState["settings"] {
       crypto: clamp(rawTargets.crypto, 0, 100),
     },
     brapiToken: toStringSafe(settings?.brapiToken),
+    riskProfile: toRiskProfile(settings?.riskProfile),
+    goal: toGoal(settings?.goal),
+    baseCurrency: toBaseCurrency(settings?.baseCurrency),
   };
 }
 
@@ -176,7 +190,7 @@ export function usePortfolio() {
       const tickers = Array.from(new Set(latest.portfolio.map((i) => i.symbol))).filter(Boolean);
       if (!tickers.length) return;
 
-      const quotes: Quote[] = await fetchQuotesBatch(tickers, latest.settings.brapiToken);
+      const quotes: Quote[] = await fetchQuotesBatch(tickers, { countAction: true });
       const map = new Map<string, Quote>(quotes.map((q) => [q.symbol, q]));
 
       setState((prev) => ({
@@ -235,7 +249,7 @@ export function usePortfolio() {
         setLoading(true);
         setError(null);
 
-        const q = await fetchQuoteSingle(symbol, state.settings.brapiToken);
+        const q = await fetchQuoteSingle(symbol);
         try {
           if (q) setCachedDailyQuote(symbol, q);
         } catch { /* empty */ }
@@ -262,7 +276,7 @@ export function usePortfolio() {
         setLoading(false);
       }
     },
-    [state.settings.brapiToken],
+    [],
   );
 
   const refreshQuotesSequentialAll = useCallback(async () => {
@@ -274,9 +288,9 @@ export function usePortfolio() {
       if (!tickers.length) return;
 
       const quotes: Quote[] = await fetchQuotesSequential(tickers, {
-        token: state.settings.brapiToken,
         delayMs: 350,
         maxRetries: 2,
+        countAction: true,
       });
       const map = new Map(quotes.map((q: Quote) => [q.symbol, q]));
 
@@ -304,7 +318,7 @@ export function usePortfolio() {
     } finally {
       setLoading(false);
     }
-  }, [state.portfolio, state.settings.brapiToken]);
+  }, [state.portfolio]);
 
   const total = useMemo(
     () => state.portfolio.reduce((acc, it) => acc + (Number(it.qty) || 0) * (Number(it.price) || 0), 0),

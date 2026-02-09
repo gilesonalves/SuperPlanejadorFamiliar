@@ -3,19 +3,19 @@ import { Navigate, createBrowserRouter, RouterProvider } from "react-router-dom"
 import AppShell from "@/components/layout/AppShell";
 import RequireAuth from "@/routes/RequireAuth";
 import Shopping from "@/pages/Shopping";
-import Pricing from "@/pages/Pricing";
 import Login from "@/pages/auth/Login";
 import Register from "@/pages/auth/Register";
 import ForgotPassword from "@/pages/auth/ForgotPassword";
 import Profile from "@/pages/auth/Profile";
 import WalletManager from "./components/WalletManager";
-import BudgetManager from "./components/BudgetManager";
 import Dashboard from "./components/Dashboard";
+import BudgetFamiliarPage from "./modules/budgetFamiliar/pages/BudgetFamiliarPage";
+import BudgetFamiliarImportPage from "./modules/budgetFamiliar/pages/BudgetFamiliarImportPage";
+import InvestmentsAdvancedPage from "./modules/wallet/pages/InvestmentsAdvancedPage";
 
 const router = createBrowserRouter([
   // públicas
   { path: "/login", element: <Login /> },
-  { path: "/pricing", element: <Pricing /> },
   { path: "/register", element: <Register /> },
   { path: "/forgot", element: <ForgotPassword /> },
 
@@ -29,7 +29,9 @@ const router = createBrowserRouter([
           { index: true, element: <Navigate to="/home" replace /> },
           { path: "home", element: <Dashboard /> },
           { path: "wallet", element: <WalletManager /> },   // 👈 aqui
-          { path: "budget", element: <BudgetManager /> },   // 👈 aqui
+          { path: "budget-familiar", element: <BudgetFamiliarPage /> },
+          { path: "settings/data/import-budget-familiar", element: <BudgetFamiliarImportPage /> },
+          { path: "settings/data/investments-advanced", element: <InvestmentsAdvancedPage /> },
           { path: "shopping", element: <Shopping /> },
           { path: "profile", element: <Profile /> },
         ],

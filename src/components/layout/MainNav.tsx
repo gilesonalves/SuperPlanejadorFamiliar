@@ -7,7 +7,7 @@ import {
   Wallet,
   Calculator,
   ShoppingBasket,
-  Crown,
+  Settings,
   User,
   LogOut,
 } from "lucide-react";
@@ -23,18 +23,73 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 const navItems = [
   { to: "/home", label: "Resumo", icon: BarChart3 },
   { to: "/wallet", label: "Carteira", icon: Wallet },
-  { to: "/budget", label: "Orçamento", icon: Calculator },
+  { to: "/budget-familiar", label: "Orçamento", icon: Calculator },
   { to: "/shopping", label: "Lista de Compras", icon: ShoppingBasket },
-  { to: "/pricing", label: "Planos", icon: Crown },
 ] as const;
 
 
 
-type Props = { direction?: "row" | "col" };
-export default function MainNav({ direction = "row" }: Props) {
+type Props = { direction?: "row" | "col"; showUserMenu?: boolean };
+
+export function UserMenu({ className, showName = false }: { className?: string; showName?: boolean }) {
   const navigate = useNavigate();
   const { user } = useAuth();
 
+  if (!user) {
+    return (
+      <NavLink
+        to="/login"
+        className={cn(buttonVariants({ variant: "default", size: "sm" }), className)}
+      >
+        Entrar
+      </NavLink>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={cn(
+          buttonVariants({ variant: "ghost", size: "sm" }),
+          "h-11 w-11 p-0",
+          className,
+        )}
+        aria-label="Abrir menu do usuario"
+      >
+        <Avatar className="h-9 w-9">
+          <AvatarFallback className="bg-primary/10 text-primary">
+            {user.email?.charAt(0)?.toUpperCase() || "U"}
+          </AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {showName ? (
+          <div className="px-2 pb-2 text-xs text-muted-foreground">
+            {user.email?.split("@")[0] || "Conta"}
+          </div>
+        ) : null}
+        <DropdownMenuItem
+          className="gap-2"
+          onClick={() => navigate("/settings/data/import-budget-familiar")}
+        >
+          <Settings className="h-4 w-4" /> Configuracoes
+        </DropdownMenuItem>
+        <DropdownMenuItem className="gap-2" onClick={() => navigate("/profile")}
+        >
+          <User className="h-4 w-4" /> Perfil
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="gap-2 text-destructive focus:text-destructive"
+          onClick={() => { void signOut(); }}
+        >
+          <LogOut className="h-4 w-4" /> Sair
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export default function MainNav({ direction = "row", showUserMenu = true }: Props) {
   const navClass =
   direction === "row"
     ? "flex flex-row items-center gap-2"
@@ -64,43 +119,7 @@ export default function MainNav({ direction = "row" }: Props) {
       </nav>
 
       {/* USER MENU */}
-      {user ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "sm:ml-1 flex items-center gap-2"
-            )}
-          >
-            <Avatar className="h-7 w-7">
-              <AvatarFallback className="bg-primary/10 text-primary">
-                {user.email?.charAt(0)?.toUpperCase() || "U"}
-              </AvatarFallback>
-            </Avatar>
-            <span className="hidden text-sm font-medium sm:inline">
-              {user.email?.split("@")[0] || "Conta"}
-            </span>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem className="gap-2" onClick={() => navigate("/profile")}>
-              <User className="h-4 w-4" /> Perfil
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="gap-2 text-destructive focus:text-destructive"
-              onClick={() => { void signOut(); }}
-            >
-              <LogOut className="h-4 w-4" /> Sair
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        <NavLink
-          to="/login"
-          className={cn(buttonVariants({ variant: "default", size: "sm" }), "sm:ml-1")}
-        >
-          Entrar
-        </NavLink>
-      )}
+      {showUserMenu ? <UserMenu showName={direction === "row"} className="sm:ml-1" /> : null}
     </div>
   );
 }

@@ -18,7 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Copy, Archive } from "lucide-react";
-import { useShopping } from "@/hooks/useShopping";
+import { useShoppingStore } from "@/contexts/ShoppingContext";
+import { useToast } from "@/hooks/use-toast";
 
 const ListPicker = () => {
   const {
@@ -29,7 +30,8 @@ const ListPicker = () => {
     archiveList,
     setActiveList,
 
-  } = useShopping();
+  } = useShoppingStore();
+  const { toast } = useToast();
 
   const [showDialog, setShowDialog] = useState(false);
   const [listName, setListName] = useState("");
@@ -41,6 +43,10 @@ const ListPicker = () => {
       return;
     }
     createList(listName.trim());
+    toast({
+      title: "Lista salva",
+      description: "A nova lista foi criada.",
+    });
     setListName("");
     setShowDialog(false);
   };

@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -11,32 +10,58 @@ import {
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import type { ShoppingCategory, ShoppingItem } from "@/services/shopping/types";
-import { useShopping } from "@/hooks/useShopping";
+import { useShoppingStore } from "@/contexts/ShoppingContext";
+import {
+  loadShoppingPriceHistory,
+  normalizeShoppingItemName,
+} from "@/services/shopping/storage";
 
 type Props = {
   categories: ShoppingCategory[];
   editingItem?: ShoppingItem;
   isEditing?: boolean;
   onEditComplete?: () => void;
+  onAddComplete?: () => void;
 };
 
 const unidades = ["un", "kg", "g", "ml", "l", "pct", "cx"] as const;
 
-type FormState = Partial<ShoppingItem>;
+type FormState = {
+  nome: string;
+  categoriaId: string;
+  quantidade: number | "";
+  unidade: ShoppingItem["unidade"];
+  preco?: number;
+  marca?: string;
+};
 
-const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Props) => {
-  const { addItem, updateItem } = useShopping();
-  const [formData, setFormData] = useState<FormState>(() => ({
-    nome: "",
-    categoriaId: "",
-    quantidade: 1,
-    unidade: "un",
-    status: "pendente",
-  }));
+const buildFormState = (item?: ShoppingItem): FormState => ({
+  nome: item?.nome ?? "",
+  categoriaId: item?.categoriaId ?? "",
+  quantidade: item?.quantidade ?? 1,
+  unidade: item?.unidade ?? "un",
+  preco: item?.preco,
+  marca: item?.marca,
+});
+
+const normalizeQuantidade = (value: FormState["quantidade"]) => {
+  if (value === "") return 1;
+  const parsed = Number(value);
+  return parsed ? parsed : 1;
+};
+
+const currencyFormatter = new Intl.NumberFormat("pt-BR", {
+  style: "currency",
+  currency: "BRL",
+});
+
+const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete, onAddComplete }: Props) => {
+  const { addItem, updateItem } = useShoppingStore();
+  const [formData, setFormData] = useState<FormState>(() => buildFormState());
 
   useEffect(() => {
     if (editingItem) {
-      setFormData(editingItem);
+      setFormData(buildFormState(editingItem));
     }
   }, [editingItem]);
 
@@ -46,32 +71,31 @@ const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Prop
       return;
     }
 
+    const payload = {
+      nome: formData.nome.trim(),
+      categoriaId: formData.categoriaId,
+      quantidade: normalizeQuantidade(formData.quantidade),
+      unidade: formData.unidade ?? "un",
+      preco: formData.preco ?? undefined,
+      marca: formData.marca?.trim() || undefined,
+    };
+
     if (isEditing && editingItem) {
-      updateItem(editingItem.id, {
-        ...formData,
-        nome: formData.nome.trim(),
-      });
+      updateItem(editingItem.id, payload);
       onEditComplete?.();
       return;
     }
 
-    addItem({
-      nome: formData.nome.trim(),
-      categoriaId: formData.categoriaId,
-      quantidade: formData.quantidade || 1,
-      unidade: formData.unidade || "un",
-      preco: formData.preco || undefined,
-      marca: formData.marca?.trim() || undefined,
-      observacao: formData.observacao?.trim() || undefined,
-      status: "pendente",
-    });
+    addItem(payload);
+    onAddComplete?.();
 
     setFormData((prev) => ({
       nome: "",
       categoriaId: prev.categoriaId,
       quantidade: 1,
-      unidade: prev.unidade || "un",
-      status: "pendente",
+      unidade: prev.unidade ?? "un",
+      preco: undefined,
+      marca: undefined,
     }));
   };
 
@@ -80,6 +104,50 @@ const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Prop
       handleSubmit(event as unknown as React.FormEvent);
     }
   };
+
+  const priceHistory = useMemo(() => {
+    const name = formData.nome.trim();
+    if (!name) return null;
+    const normalizedName = normalizeShoppingItemName(name, formData.marca);
+    if (!normalizedName) return null;
+    const entries = loadShoppingPriceHistory().filter(
+      (entry) => entry.normalizedName === normalizedName,
+    );
+    if (!entries.length) return null;
+    const sorted = [...entries].sort((a, b) => b.purchasedAt - a.purchasedAt);
+    const prices = entries
+      .map((entry) => entry.preco)
+      .filter((price) => Number.isFinite(price) && price > 0);
+    if (!prices.length) return null;
+    const total = prices.reduce((sum, price) => sum + price, 0);
+    const avg = total / prices.length;
+    const min = Math.min(...prices);
+    const max = Math.max(...prices);
+    return {
+      avg,
+      min,
+      max,
+      lastPrice: sorted[0].preco,
+      lastMarket: sorted[0].mercado,
+    };
+  }, [formData.nome, formData.marca]);
+
+  const priceTip = useMemo(() => {
+    if (!priceHistory) return null;
+    const avg = priceHistory.avg;
+    const currentPrice = formData.preco ?? 0;
+    const avgLabel = currencyFormatter.format(avg);
+    if (currentPrice > 0) {
+      if (currentPrice > avg * 1.15) {
+        return `Estimativa pelo seu historico: acima da sua media (${avgLabel}).`;
+      }
+      if (currentPrice < avg * 0.85) {
+        return `Estimativa pelo seu historico: abaixo da sua media (${avgLabel}).`;
+      }
+      return `Estimativa pelo seu historico: perto da sua media (${avgLabel}).`;
+    }
+    return `Estimativa pelo seu historico: media em torno de ${avgLabel}.`;
+  }, [priceHistory, formData.preco]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border bg-muted/30 p-4">
@@ -97,6 +165,18 @@ const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Prop
             className="font-medium"
             autoFocus={!isEditing}
           />
+          {priceHistory ? (
+            <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+              <p>
+                Voce ja comprou este item por{" "}
+                <span className="font-semibold text-foreground">
+                  {currencyFormatter.format(priceHistory.lastPrice)}
+                </span>
+                {priceHistory.lastMarket ? ` no ${priceHistory.lastMarket}` : ""}.
+              </p>
+              {priceTip ? <p>{priceTip} Nao e preco em tempo real.</p> : null}
+            </div>
+          ) : null}
         </div>
 
         <div>
@@ -130,7 +210,7 @@ const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Prop
             onChange={(event) =>
               setFormData((prev) => ({
                 ...prev,
-                quantidade: Number(event.target.value) || 1,
+                quantidade: event.target.value === "" ? "" : Number(event.target.value),
               }))
             }
             className="w-20"
@@ -176,14 +256,6 @@ const ItemEditor = ({ categories, editingItem, isEditing, onEditComplete }: Prop
           />
         </div>
       </div>
-
-      <Textarea
-        placeholder="Observacoes, dicas de receita ou informacoes nutricionais"
-        rows={2}
-        className="text-sm"
-        value={formData.observacao ?? ""}
-        onChange={(event) => setFormData((prev) => ({ ...prev, observacao: event.target.value }))}
-      />
 
       <div className="flex gap-2">
         {isEditing ? (

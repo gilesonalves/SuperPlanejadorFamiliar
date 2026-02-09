@@ -1,29 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  canAddItem,
-  canCreateList,
-  FREE_LIMITS,
-  getTotalItems,
   loadShopping,
   saveShopping,
+  loadShoppingHistory,
+  saveShoppingHistory,
+  appendShoppingPriceHistory,
+  normalizeShoppingItemName,
 } from "@/services/shopping/storage";
-import {
-  defaultCategories,
-} from "@/services/shopping/seed";
+import { defaultCategories } from "@/services/shopping/seed";
 import type {
-  FilterStatus,
   ShoppingItem,
   ShoppingList,
   ShoppingState,
   SortBy,
+  ShoppingHistoryEntry,
 } from "@/services/shopping/types";
 
 export function useShopping() {
   const [state, setState] = useState<ShoppingState>(() => loadShopping());
-  const [showProGate, setShowProGate] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<FilterStatus>("todos");
-  const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
   const [sortBy, setSortBy] = useState<SortBy>("nome");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
 
@@ -102,7 +97,6 @@ export function useShopping() {
           itens: source.itens.map((item) => ({
             ...item,
             id: crypto.randomUUID(),
-            status: "pendente",
           })),
           arquivada: false,
           createdAt: Date.now(),
@@ -210,93 +204,6 @@ export function useShopping() {
     [mutateState],
   );
 
-  const toggleItemStatus = useCallback(
-    (itemId: string) => {
-      mutateState((prev) => {
-        const listId = prev.listaAtivaId;
-        if (!listId) {
-          return prev;
-        }
-        const index = prev.listas.findIndex((lista) => lista.id === listId);
-        if (index === -1) {
-          return prev;
-        }
-        const listas = [...prev.listas];
-        const lista = listas[index];
-        listas[index] = {
-          ...lista,
-          itens: lista.itens.map((item) => {
-            if (item.id !== itemId) {
-              return item;
-            }
-            let next: ShoppingItem["status"];
-            switch (item.status) {
-              case "pendente":
-                next = "carrinho";
-                break;
-              case "carrinho":
-                next = "comprado";
-                break;
-              default:
-                next = "pendente";
-            }
-            return { ...item, status: next };
-          }),
-          updatedAt: Date.now(),
-        };
-        return { ...prev, listas };
-      });
-    },
-    [mutateState],
-  );
-
-  const markAllAs = useCallback(
-    (status: ShoppingItem["status"]) => {
-      mutateState((prev) => {
-        const listId = prev.listaAtivaId;
-        if (!listId) {
-          return prev;
-        }
-        const index = prev.listas.findIndex((lista) => lista.id === listId);
-        if (index === -1) {
-          return prev;
-        }
-        const listas = [...prev.listas];
-        const lista = listas[index];
-        listas[index] = {
-          ...lista,
-          itens: lista.itens.map((item) => ({ ...item, status })),
-          updatedAt: Date.now(),
-        };
-        return { ...prev, listas };
-      });
-    },
-    [mutateState],
-  );
-
-  const clearCart = useCallback(() => {
-    mutateState((prev) => {
-      const listId = prev.listaAtivaId;
-      if (!listId) {
-        return prev;
-      }
-      const index = prev.listas.findIndex((lista) => lista.id === listId);
-      if (index === -1) {
-        return prev;
-      }
-      const listas = [...prev.listas];
-      const lista = listas[index];
-      listas[index] = {
-        ...lista,
-        itens: lista.itens.map((item) =>
-          item.status === "carrinho" ? { ...item, status: "pendente" } : item,
-        ),
-        updatedAt: Date.now(),
-      };
-      return { ...prev, listas };
-    });
-  }, [mutateState]);
-
   const getTotalByCategory = useCallback(
     (categoriaId: string) => {
       if (!activeList) {
@@ -321,43 +228,75 @@ export function useShopping() {
 
   const getStats = useCallback(() => {
     if (!activeList) {
-      return { total: 0, pendentes: 0, carrinho: 0, comprados: 0 };
+      return { total: 0 };
     }
-    return activeList.itens.reduce(
-      (acc, item) => {
-        acc.total += 1;
-        if (item.status === "pendente") acc.pendentes += 1;
-        if (item.status === "carrinho") acc.carrinho += 1;
-        if (item.status === "comprado") acc.comprados += 1;
-        return acc;
-      },
-      { total: 0, pendentes: 0, carrinho: 0, comprados: 0 },
-    );
+    return { total: activeList.itens.length };
   }, [activeList]);
+
+  const finalizeList = useCallback((mercado?: string) => {
+    const list = activeList;
+    if (!list) return;
+
+    const normalizedMarket = mercado?.trim() || undefined;
+    const priceEntries = list.itens
+      .filter((item) => typeof item.preco === "number" && item.preco > 0)
+      .map((item) => {
+        const normalizedName = normalizeShoppingItemName(item.nome, item.marca);
+        if (!normalizedName) return null;
+        return {
+          id: crypto.randomUUID(),
+          normalizedName,
+          categoriaId: item.categoriaId,
+          preco: item.preco as number,
+          mercado: normalizedMarket,
+          purchasedAt: Date.now(),
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    appendShoppingPriceHistory(priceEntries);
+
+    const history = loadShoppingHistory();
+    const entry: ShoppingHistoryEntry = {
+      id: crypto.randomUUID(),
+      listId: list.id,
+      nome: list.nome,
+      itens: list.itens.map((item) => ({ ...item })),
+      finalizedAt: Date.now(),
+    };
+    saveShoppingHistory([entry, ...history]);
+
+    updateList(list.id, { arquivada: true });
+    const remaining = state.listas.filter((lista) => !lista.arquivada && lista.id !== list.id);
+    if (remaining.length > 0) {
+      setActiveList(remaining[0].id);
+      return;
+    }
+
+    mutateState((prev) => {
+      const newList: ShoppingList = {
+        id: crypto.randomUUID(),
+        nome: list.nome,
+        categorias: list.categorias,
+        itens: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      return {
+        ...prev,
+        listas: [...prev.listas, newList],
+        listaAtivaId: newList.id,
+      };
+    });
+  }, [activeList, state.listas, updateList, setActiveList, mutateState]);
 
   const handleSortChange = useCallback((nextSort: SortBy, direction: "asc" | "desc") => {
     setSortBy(nextSort);
     setSortDirection(direction);
   }, []);
 
-  const limits = useMemo(() => ({
-    canCreateList: true,
-    canAddItem: true,
-    currentLists: state.listas.filter((lista) => !lista.arquivada).length,
-    currentItems: getTotalItems(state),
-    maxLists: FREE_LIMITS.maxLists,
-    maxItems: FREE_LIMITS.maxItems,
-  }), [state]);
-
   return {
     state,
     activeList,
-    showProGate,
-    setShowProGate,
-    statusFilter,
-    setStatusFilter,
-    categoryFilter,
-    setCategoryFilter,
     sortBy,
     sortDirection,
     handleSortChange,
@@ -369,12 +308,9 @@ export function useShopping() {
     addItem,
     updateItem,
     removeItem,
-    toggleItemStatus,
-    markAllAs,
-    clearCart,
     getTotalByCategory,
     getTotalGeral,
     getStats,
-    limits,
+    finalizeList,
   };
 }

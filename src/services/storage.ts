@@ -14,10 +14,16 @@ export type PortfolioItem = {
 
 export type Targets = { fii: number; acao: number; crypto: number };
 
+export type RiskProfile = "conservador" | "moderado" | "arrojado";
+export type PortfolioGoal = "crescimento" | "renda-passiva" | "preservacao";
+
 export type Settings = {
   contributionBudget: number;
   targetAllocation: Targets; // agora inclui crypto
   brapiToken?: string;
+  riskProfile: RiskProfile;
+  goal: PortfolioGoal;
+  baseCurrency: "BRL";
 };
 
 export type BudgetItem = {
@@ -43,6 +49,9 @@ export const defaultState: AppState = {
     contributionBudget: 0,
     targetAllocation: { fii: 70, acao: 30, crypto: 0 }, // crypto aqui
     brapiToken: "",
+    riskProfile: "moderado",
+    goal: "crescimento",
+    baseCurrency: "BRL",
   },
 };
 

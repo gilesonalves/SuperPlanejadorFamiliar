@@ -16,7 +16,7 @@ import { Menu } from "lucide-react";
 // src/components/layout/AppShell.tsx
 import { ReactNode } from "react";
 import { Link, Outlet } from "react-router-dom";
-import MainNav from "./MainNav";
+import MainNav, { UserMenu } from "./MainNav";
 import { cn } from "@/lib/utils";
 
 export default function AppShell() {
@@ -30,39 +30,43 @@ export default function AppShell() {
           </Link>
 
           {/* --- DESKTOP NAV (igual ao que você já usa) --- */}
-          <div className="hidden sm:block">
-            <MainNav />
+          <div className="hidden sm:flex flex-1 items-center justify-center">
+            <MainNav showUserMenu={false} />
           </div>
 
-          {/* --- MOBILE NAV (Sheet) --- */}
-          <div className="sm:hidden">
-            {/* imports necessários no topo:
+          <div className="flex items-center gap-2">
+            <UserMenu />
+
+            {/* --- MOBILE NAV (Sheet) --- */}
+            <div className="sm:hidden">
+              {/* imports necessários no topo:
          import { buttonVariants } from "@/components/ui/button";
          import { cn } from "@/lib/utils";
          import { Menu } from "lucide-react";
          import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
       */}
-            <Sheet>
-              <SheetTrigger
-                className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "p-2")}
-                aria-label="Abrir menu"
-              >
-                <Menu className="h-5 w-5" />
-              </SheetTrigger>
-              <SheetContent side="right" className="w-80">
-                <SheetHeader>
-                  <SheetTitle className="flex items-center gap-2">
-                    <img src="/sp-primary-48.png" alt="SP" className="h-6 w-6 rounded-md" />
-                    Menu
-                  </SheetTitle>
-                </SheetHeader>
+              <Sheet>
+                <SheetTrigger
+                  className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "p-2")}
+                  aria-label="Abrir menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </SheetTrigger>
+                <SheetContent side="right" className="w-80">
+                  <SheetHeader>
+                    <SheetTitle className="flex items-center gap-2">
+                      <img src="/sp-primary-48.png" alt="SP" className="h-6 w-6 rounded-md" />
+                      Menu
+                    </SheetTitle>
+                  </SheetHeader>
 
-                <div className="mt-4">
-                  {/* Reaproveita o mesmo MainNav, versão em coluna (ver passo 2) */}
-                  <MainNav direction="col" />
-                </div>
-              </SheetContent>
-            </Sheet>
+                  <div className="mt-4">
+                    {/* Reaproveita o mesmo MainNav, versão em coluna (ver passo 2) */}
+                    <MainNav direction="col" showUserMenu={false} />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
           </div>
         </div>
       </header>

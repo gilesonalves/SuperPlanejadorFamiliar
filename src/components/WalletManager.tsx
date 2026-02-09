@@ -8,6 +8,14 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Plus,
   Trash2,
   TrendingUp,
@@ -18,21 +26,13 @@ import {
   Rows,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import ImportExport from "@/components/ImportExport";
 import EvolutionChart from "@/components/wallet/EvolutionChart";
 import PricesPanel from "@/components/wallet/PricesPanel";
 import SectorSummary from "@/components/wallet/SectorSummary";
 import AIHints from "@/components/wallet/AIHints";
-import FeatureLock from "@/components/FeatureLock";
-import { UpgradeCard } from "@/components/UpgradeCard";
 import { usePortfolio } from "@/hooks/usePortfolio";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { useEntitlements } from "@/hooks/useEntitlements";
-import { cloneDefaultState, saveLocal, type AppState } from "@/services/storage";
 import { cn } from "@/lib/utils";
-import { goCheckout } from "@/lib/checkout";
-import { usePremiumAccess } from "@/hooks/usePremiumAccess";
-import { useAuth } from "@/hooks/useAuth";
 import type { PortfolioItem } from "@/hooks/usePortfolio";
 type Totals = {
   valor: number;
@@ -117,6 +117,17 @@ const presets = {
   ],
 } as const;
 
+const riskProfileOptions = [
+  { value: "conservador", label: "Conservador" },
+  { value: "moderado", label: "Moderado" },
+  { value: "arrojado", label: "Arrojado" },
+] as const;
+
+const goalOptions = [
+  { value: "crescimento", label: "Crescimento" },
+  { value: "renda-passiva", label: "Renda passiva" },
+  { value: "preservacao", label: "Preservação de capital" },
+] as const;
 
 const WalletManager = () => {
   const {
@@ -133,33 +144,14 @@ const WalletManager = () => {
     error,
   } = usePortfolio();
   const { toast } = useToast();
-  const { flags, loading: featureFlagsLoading } = useFeatureFlags();
-  const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
-  const { loading: entitlementsLoading, effectiveTier, has, trialExpiresAt } = useEntitlements();
-  const { user } = useAuth();
-  const gatingLoading = featureFlagsLoading || premiumLoading;
-  const entitlementsReady = !entitlementsLoading;
-  const cardsModuleEnabled = premiumAllowed || flags.CARDS_MODULE;
-  const goalsEnabled = premiumAllowed || flags.GOALS;
-  const reportsEnabled = premiumAllowed || flags.REPORTS;
-  const exportsEnabled = premiumAllowed || flags.EXPORTS;
-  const openFinanceFeatureEnabled = premiumAllowed || flags.OPEN_FINANCE;
-  const hasReports = has("reports");
-  const hasDashboards = has("dashboards");
-  const hasAutosuggestions = has("autosuggestions");
-  const cardsLocked =
-    (!cardsModuleEnabled && !gatingLoading) || (entitlementsReady && !hasDashboards);
-  const goalsLocked =
-    (!goalsEnabled && !gatingLoading) || (entitlementsReady && !hasDashboards);
-  const reportsLocked =
-    (!reportsEnabled && !gatingLoading) ||
-    (entitlementsReady && (!hasReports || !hasDashboards));
-  const exportsLocked =
-    (!exportsEnabled && !gatingLoading) || (entitlementsReady && !hasReports);
-  const openFinanceLocked =
-    (!openFinanceFeatureEnabled && !gatingLoading) ||
-    (entitlementsReady && !hasAutosuggestions);
+  const { flags } = useFeatureFlags();
+  const cardsModuleEnabled = flags.CARDS_MODULE;
+  const goalsEnabled = flags.GOALS;
+  const reportsEnabled = flags.REPORTS;
+  const exportsEnabled = flags.EXPORTS;
   const [newItem, setNewItem] = useState<NewItemState>(defaultNewItem);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") {
       return "card";
@@ -172,61 +164,10 @@ const WalletManager = () => {
   }, [view]);
 
   useEffect(() => {
-    if (cardsLocked && view === "card") {
+    if (!cardsModuleEnabled && view === "card") {
       setView("table");
     }
-  }, [cardsLocked, view]);
-  const trialActive = effectiveTier === "trial";
-  const trialExpiryLabel =
-    trialActive && trialExpiresAt
-      ? new Date(trialExpiresAt).toLocaleDateString()
-      : null;
-  const upgradeTitle =
-    effectiveTier === "free"
-      ? "Desbloqueie relatórios"
-      : trialActive
-        ? "Teste gratuito ativo"
-        : "Seu teste terminou";
-  const upgradeDescription =
-    effectiveTier === "free"
-      ? "Assine para liberar relatórios e dashboards."
-      : trialActive
-        ? `Teste gratuito com todos os recursos até ${trialExpiryLabel ?? "o fim do período"}`
-        : "Faça upgrade para continuar usando relatórios e dashboards.";
-
-  useEffect(() => {
-    if (gatingLoading || !entitlementsReady) return;
-
-    const nowIso = new Date().toISOString();
-    [
-      { key: "wallet-cards", locked: cardsLocked },
-      { key: "wallet-goals", locked: goalsLocked },
-      { key: "wallet-reports", locked: reportsLocked },
-      { key: "wallet-exports", locked: exportsLocked },
-      { key: "wallet-open-finance", locked: openFinanceLocked },
-    ]
-      .filter((gate) => gate.locked)
-      .forEach((gate) => {
-        console.warn("[Gate] closed", {
-          userId: user?.id ?? null,
-          plan: effectiveTier,
-          trialEndsAt: trialExpiresAt,
-          now: nowIso,
-          gateKey: gate.key,
-        });
-      });
-  }, [
-    gatingLoading,
-    entitlementsReady,
-    cardsLocked,
-    goalsLocked,
-    reportsLocked,
-    exportsLocked,
-    openFinanceLocked,
-    user?.id,
-    effectiveTier,
-    trialExpiresAt,
-  ]);
+  }, [cardsModuleEnabled, view]);
   const tickerPlaceholder =
     newItem.assetClass === "FII"
       ? "Ex: MXRF11"
@@ -238,6 +179,10 @@ const WalletManager = () => {
   const targetAllocation = state.settings?.targetAllocation ?? { fii: 70, acao: 30, crypto: 0 };
   const contributionBudget = state.settings.contributionBudget ?? 0;
   const token = state.settings.brapiToken ?? "";
+  const riskProfile = state.settings.riskProfile;
+  const goal = state.settings.goal;
+  const baseCurrency = state.settings.baseCurrency;
+  const showAdvancedSettings = false;
 
   const totals = useMemo<Totals>(() => {
     return state.portfolio.reduce<Totals>(
@@ -254,10 +199,9 @@ const WalletManager = () => {
 
         return acc;
       },
-      { valor: 0, dividendos: 0, fii: 0, acao: 0, crypto: 0 }
+      { valor: 0, dividendos: 0, fii: 0, acao: 0, crypto: 0 },
     );
   }, [state.portfolio]);
-
 
   const allocations = useMemo(() => {
     const value = totals.valor || 0;
@@ -274,8 +218,13 @@ const WalletManager = () => {
     crypto: targetAllocation.crypto - allocations.cryptoPct,
   };
 
-
-
+  const assetsByClass = useMemo(() => {
+    return {
+      FII: state.portfolio.filter((item) => item.assetClass === "FII"),
+      ACAO: state.portfolio.filter((item) => item.assetClass === "ACAO"),
+      CRYPTO: state.portfolio.filter((item) => item.assetClass === "CRYPTO"),
+    };
+  }, [state.portfolio]);
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
@@ -301,7 +250,6 @@ const WalletManager = () => {
     });
 
     setNewItem(defaultNewItem);
-
     toast({
       title: "Investimento adicionado",
       description: "O ativo foi incluído na carteira",
@@ -380,33 +328,215 @@ const WalletManager = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportJSON = (payload: unknown) => {
-    try {
-      if (!payload || typeof payload !== "object") throw new Error("Formato inválido");
-      const base = cloneDefaultState();
-      const data = payload as Partial<AppState>;
-      const nextState: AppState = {
-        portfolio: Array.isArray(data.portfolio) ? data.portfolio : base.portfolio,
-        budget: Array.isArray(data.budget) ? data.budget : base.budget,
-        settings: {
-          ...base.settings,
-          ...(typeof data.settings === "object" && data.settings ? data.settings : {}),
-        },
-      };
-      saveLocal(nextState);
-      toast({
-        title: "Dados importados",
-        description: "A carteira foi atualizada com sucesso",
-      });
-    } catch (err) {
-      console.error("Erro ao importar JSON", err);
-      toast({
-        title: "Falha na importação",
-        description: "Não foi possível ler o arquivo selecionado",
-        variant: "destructive",
-      });
+  const renderAssets = (items: PortfolioItem[]) => {
+    if (items.length === 0) {
+      return (
+        <div className="rounded-md border border-dashed border-border/60 p-6 text-center text-muted-foreground">
+          <TrendingUp className="mx-auto mb-3 h-8 w-8 opacity-50" />
+          <p className="font-medium">Nenhum ativo nesta classe</p>
+          <p className="text-xs">Adicione investimentos para acompanhar a alocacao.</p>
+        </div>
+      );
     }
+
+    return (
+      <>
+        {view === "card" && (
+          <div className="wallet-asset-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {items.map((item) => {
+              const value = item.qty * (item.price ?? 0);
+              const dividends = value * ((item.monthlyYield ?? 0) / 100);
+
+              return (
+                <Card key={item.id} className="wallet-asset-card h-auto">
+                  <CardHeader className="wallet-asset-card__header flex flex-col items-start gap-2">
+                    <div className="flex w-full items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
+                          {item.assetClass ?? "-"}
+                        </Badge>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold leading-tight">{item.symbol}</p>
+                          <p className="text-xs text-muted-foreground break-words">{item.name ?? "-"}</p>
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        {formatCurrency(value)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground break-words">
+                      {item.sector || "Nao informado"}
+                    </p>
+                  </CardHeader>
+                  <CardContent className="wallet-asset-card__body space-y-3 pt-0">
+                    <div className="wallet-asset-fields flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                      <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Qtd</span>
+                        <Input
+                          type="number"
+                          value={item.qty}
+                          onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
+                          className="w-full min-w-0 text-right text-sm"
+                        />
+                      </div>
+                      <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Preco (R$)</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={item.price ?? 0}
+                          onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
+                          className="w-full min-w-0 text-right text-sm"
+                        />
+                      </div>
+                      <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">DY Mensal (%)</span>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={item.monthlyYield ?? 0}
+                          onChange={(event) =>
+                            updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
+                          }
+                          className="w-full min-w-0 text-right text-sm"
+                        />
+                      </div>
+                      <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">Setor</span>
+                        <span className="min-w-0 break-words text-sm font-medium">
+                          {item.sector || "Nao informado"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="wallet-asset-summary flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <span className="text-sm text-muted-foreground">
+                        Dividendos/mes:
+                        <span className="ml-1 font-semibold text-success">{formatCurrency(dividends)}</span>
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        Valor total:
+                        <span className="ml-1 font-semibold">{formatCurrency(value)}</span>
+                      </span>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="wallet-asset-card__footer flex flex-wrap gap-2 pt-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => refreshTicker(item.symbol)}
+                      disabled={loading}
+                    >
+                      Atualizar
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => removeItem(item.id)}
+                      className="text-destructive hover:text-destructive"
+                    >
+                      Remover
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+
+        {view === "table" && (
+          <div className="wallet-table-wrapper overflow-x-auto mt-6">
+            <table className="data-table min-w-[720px]">
+              <thead>
+                <tr>
+                  <th>Classe</th>
+                  <th>Ticker</th>
+                  <th>Nome</th>
+                  <th>Setor</th>
+                  <th>Qtd</th>
+                  <th>Preco</th>
+                  <th>DY Mensal</th>
+                  <th>Div/Mes</th>
+                  <th>Valor Total</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((item: PortfolioItem) => {
+                  const value = item.qty * (item.price ?? 0);
+                  const dividends = value * ((item.monthlyYield ?? 0) / 100);
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
+                          {item.assetClass ?? "-"}
+                        </Badge>
+                      </td>
+                      <td className="font-mono font-semibold">{item.symbol}</td>
+                      <td className="max-w-[160px] break-words">{item.name ?? "-"}</td>
+                      <td className="max-w-[160px] break-words">{item.sector ?? "-"}</td>
+                      <td>
+                        <Input
+                          type="number"
+                          value={item.qty}
+                          onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
+                          className="text-xs text-right"
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={item.price ?? 0}
+                          onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
+                          className="text-xs text-right"
+                        />
+                      </td>
+                      <td>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={item.monthlyYield ?? 0}
+                          onChange={(event) =>
+                            updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
+                          }
+                          className="text-xs text-right"
+                        />
+                      </td>
+                      <td className="font-medium text-success">{formatCurrency(dividends)}</td>
+                      <td className="font-medium">{formatCurrency(value)}</td>
+                      <td>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => refreshTicker(item.symbol)}
+                            className="px-2"
+                            disabled={loading}
+                            title={`Atualizar ${item.symbol}`}
+                          >
+                            Atualizar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeItem(item.id)}
+                            className="p-0 text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </>
+    );
   };
+
 
   const [draftBudget, setDraftBudget] = useState(String(contributionBudget ?? 0));
   useEffect(() => { setDraftBudget(String(contributionBudget ?? 0)); }, [contributionBudget]);
@@ -431,11 +561,17 @@ const WalletManager = () => {
   return (
     <div className="wallet-root w-full space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
+        <div className="space-y-2">
           <h2 className="text-2xl font-semibold">Carteira de Investimentos</h2>
-          <p className="text-sm text-muted-foreground">
-            Gerencie FIIs, ações e acompanhe suas metas de alocação.
-          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-auto px-0 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setHowItWorksOpen(true)}
+          >
+            ℹ️ Como funciona a carteira
+          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={refreshQuotes} disabled={loading}>
@@ -452,19 +588,6 @@ const WalletManager = () => {
             <RefreshCcw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Atualizar todos (sequencial)
           </Button>
-          {exportsEnabled ? (
-            <ImportExport
-              dataForExport={state}
-              onImportJSON={handleImportJSON}
-              fileName="superplanejador_carteira"
-            />
-          ) : gatingLoading ? null : (
-            <FeatureLock
-              title="Exportações avançadas"
-              description="Exporte a carteira em JSON no plano Pro."
-              variant="inline"
-            />
-          )}
         </div>
       </div>
 
@@ -474,215 +597,469 @@ const WalletManager = () => {
         </div>
       ) : null}
 
+      <Dialog open={howItWorksOpen} onOpenChange={setHowItWorksOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Como funciona a Carteira de Investimentos</DialogTitle>
+            <DialogDescription>
+              Entenda o que o app faz e como acompanhar sua carteira.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm text-muted-foreground">
+            <p>
+              Acompanhe sua carteira de investimentos de forma simples e organizada. Registre seus ativos
+              manualmente e acompanhe a evolução da sua alocação ao longo do tempo.
+            </p>
+            <p>
+              Os investimentos são realizados fora do app, no banco ou corretora de sua preferência.
+            </p>
+            <p>Este app não realiza investimentos nem se conecta diretamente a bancos ou corretoras.</p>
+            <p>Os ativos são adicionados manualmente por você, com base nos seus investimentos reais.</p>
+            <p>Os preços podem ser atualizados para refletir o mercado.</p>
+            <p>A carteira ajuda a acompanhar alocação, evolução e metas financeiras.</p>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setHowItWorksOpen(false)}>Entendi</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* KPIs */}
-      <div className="kpi-grid">
+      <Card className="financial-card px-2">
+        <CardHeader>
+          <CardTitle>Resumo da carteira</CardTitle>
+          <CardDescription>
+            Valor total {formatCurrency(totals.valor)} · Dividendos mês {formatCurrency(totals.dividendos)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="multiple" className="space-y-3">
+            <AccordionItem value="kpis" className="rounded-md border border-border/60 px-4">
+              <AccordionTrigger className="py-4 hover:no-underline">
+                <div className="flex w-full items-center justify-between gap-3 text-left">
+                  <div>
+                    <div className="text-sm font-semibold">Indicadores da carteira</div>
+                    <div className="text-xs text-muted-foreground">
+                      {allocations.fiiPct.toFixed(0)}% FIIs · {allocations.acaoPct.toFixed(0)}% Ações · {allocations.cryptoPct.toFixed(0)}% Crypto
+                    </div>
+                  </div>
+                  <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4 pt-2">
+                <div className="kpi-grid">
+                  <Card className="kpi-card">
+                    <CardContent className="p-4">
+                      <div className="kpi-label">FIIs</div>
+                      <div className="kpi-value">
+                        {allocations.fiiPct.toFixed(1)}%
+                        <span className="ml-2 text-sm text-muted-foreground">
+                          ({formatCurrency(totals.fii)})
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Diferença vs meta: {allocationGap.fii.toFixed(1)}%
+                      </p>
+                    </CardContent>
+                  </Card>
 
+                  <Card className="kpi-card">
+                    <CardContent className="p-4">
+                      <div className="kpi-label">Ações</div>
+                      <div className="kpi-value">
+                        {allocations.acaoPct.toFixed(1)}%
+                        <span className="ml-2 text-sm text-muted-foreground">
+                          ({formatCurrency(totals.acao)})
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Diferença vs meta: {allocationGap.acao.toFixed(1)}%
+                      </p>
+                    </CardContent>
+                  </Card>
+                  <Card className="kpi-card">
+                    <CardContent className="p-4">
+                      <div className="kpi-label">Crypto</div>
+                      <div className="kpi-value">
+                        {allocations.cryptoPct.toFixed(1)}%
+                        <span className="ml-2 text-sm text-muted-foreground">
+                          ({formatCurrency(totals.crypto)})
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Diferença vs meta: {allocationGap.crypto.toFixed(1)}%
+                      </p>
+                    </CardContent>
+                  </Card>
 
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">FIIs</div>
-            <div className="kpi-value">
-              {allocations.fiiPct.toFixed(1)}%
-              <span className="ml-2 text-sm text-muted-foreground">
-                ({formatCurrency(totals.fii)})
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Diferença vs meta: {allocationGap.fii.toFixed(1)}%
-            </p>
-          </CardContent>
-        </Card>
+                  <Card className="kpi-card">
+                    <CardContent className="p-4">
+                      <div className="kpi-label">Dividendos/Mês</div>
+                      <div className="kpi-value text-success">{formatCurrency(totals.dividendos)}</div>
+                    </CardContent>
+                  </Card>
 
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Ações</div>
-            <div className="kpi-value">
-              {allocations.acaoPct.toFixed(1)}%
-              <span className="ml-2 text-sm text-muted-foreground">
-                ({formatCurrency(totals.acao)})
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Diferença vs meta: {allocationGap.acao.toFixed(1)}%
-            </p>
-          </CardContent>
-        </Card>
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Crypto</div>
-            <div className="kpi-value">
-              {allocations.cryptoPct.toFixed(1)}%
-              <span className="ml-2 text-sm text-muted-foreground">
-                ({formatCurrency(totals.crypto)})
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Diferença vs meta: {allocationGap.crypto.toFixed(1)}%
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="kpi-card">
-          <CardContent className="p-4">
-            <div className="kpi-label">Dividendos/Mês</div>
-            <div className="kpi-value text-success">{formatCurrency(totals.dividendos)}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="kpi-card">
-        <CardContent className="p-4">
-          <div className="kpi-label">Valor Total</div>
-          <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
+                  <Card className="kpi-card">
+                    <CardContent className="p-4">
+                      <div className="kpi-label">Valor Total</div>
+                      <div className="kpi-value text-primary">{formatCurrency(totals.valor)}</div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
         </CardContent>
       </Card>
 
       {/* Blocos analiticos */}
-{entitlementsLoading ? null : reportsLocked ? (
-        <UpgradeCard
-          title={upgradeTitle}
-          description={upgradeDescription}
-          onPro={() => goCheckout("pro")}
-          onPremium={() => goCheckout("premium")}
-        />
-      ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <EvolutionChart />
-          <SectorSummary />
-          <PricesPanel />
-          {hasAutosuggestions ? <AIHints /> : null}
-        </div>
-      )}
+      <Card className="financial-card px-2">
+        <CardHeader>
+          <CardTitle>Análises e preferências</CardTitle>
+          <CardDescription>Gráficos, dicas e configurações da carteira.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Accordion type="multiple" className="space-y-3">
+            {reportsEnabled ? (
+              <AccordionItem value="evolucao" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Evolução da carteira</div>
+                      <div className="text-xs text-muted-foreground">Linha do tempo do patrimônio.</div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  <EvolutionChart />
+                </AccordionContent>
+              </AccordionItem>
+            ) : null}
 
-      {/* Configurações */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        <Card className="financial-card">
-            <CardHeader>
-              <CardTitle className="flex items-center">
-                <DollarSign className="mr-2 h-5 w-5" />
-                Configurações da Carteira
-              </CardTitle>
-              <CardDescription>Controle metas e integração com a BRAPI.</CardDescription>
-              {trialExpiryLabel ? (
-                <p className="mt-2 text-xs text-primary">
-                  Período de teste ativo até {trialExpiryLabel}.
-                </p>
-              ) : null}
-            </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label>Orçamento de Aporte (R$)</Label>
-              <Input
-                inputMode="decimal"
-                value={draftBudget}
-                onChange={(e) => setDraftBudget(e.target.value)}
-                onBlur={() => handleBudgetChange(Number(draftBudget) || 0)}
-                className="input-financial"
-              />
-            </div>
+            {reportsEnabled ? (
+              <AccordionItem value="dicas" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Dicas inteligentes</div>
+                      <div className="text-xs text-muted-foreground">Insights com base na carteira.</div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  <AIHints />
+                </AccordionContent>
+              </AccordionItem>
+            ) : null}
 
-            {/* Metas (%) */}
-            {goalsLocked ? (
-              <FeatureLock
-                title="Metas de alocação"
-                description="Desbloqueie metas percentuais personalizadas com o plano Pro."
-              />
-            ) : (
-              <>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <Label>Meta FIIs (%)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={draftTargets.fii}
-                  onChange={(e) =>
-                    setDraftTargets((d) => ({ ...d, fii: e.target.value }))
-                  }
-                  onBlur={() => handleTargetChange("fii", Number(draftTargets.fii) || 0)}
-                  className="input-financial"
-                />
-              </div>
-              <div>
-                <Label>Meta Ações (%)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={draftTargets.acao}
-                  onChange={(e) =>
-                    setDraftTargets((d) => ({ ...d, acao: e.target.value }))
-                  }
-                  onBlur={() => handleTargetChange("acao", Number(draftTargets.acao) || 0)}
-                  className="input-financial"
-                />
-              </div>
-              <div>
-                <Label>Meta Crypto (%)</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  value={draftTargets.crypto}
-                  onChange={(e) =>
-                    setDraftTargets((d) => ({ ...d, crypto: e.target.value }))
-                  }
-                  onBlur={() => handleTargetChange("crypto", Number(draftTargets.crypto) || 0)}
-                  className="input-financial"
-                />
-              </div>
-            </div>
-
-            <div className={cn("text-xs mt-1", sumIsOk ? "text-muted-foreground" : "text-amber-500")}>
-              Soma das metas: {sumTargets}% {remaining !== 0 && `(restante ${remaining > 0 ? "+" : ""}${remaining}%)`}
-            </div>
-              </>
-            )}
-            <div>
-              <Label>Token BRAPI (opcional)</Label>
-              <Input
-                value={token}
-                onChange={(event) => handleTokenChange(event.target.value)}
-                placeholder="Informe seu token para limites maiores"
-                className="input-financial"
-                disabled={!openFinanceFeatureEnabled}
-              />
-              {openFinanceLocked ? (
-                <div className="pt-2">
-                  <FeatureLock
-                    title="Open Finance e BRAPI"
-                    description="Conecte integrações automáticas liberando um plano pago."
-                    variant="inline"
-                  />
+            <AccordionItem value="preferencias" className="rounded-md border border-border/60 px-4">
+              <AccordionTrigger className="py-4 hover:no-underline">
+                <div className="flex w-full items-center justify-between gap-3 text-left">
+                  <div>
+                    <div className="text-sm font-semibold">Preferências da carteira</div>
+                    <div className="text-xs text-muted-foreground">Defina parâmetros para orientar dicas.</div>
+                  </div>
+                  <span className="text-xs text-muted-foreground">Ver detalhes</span>
                 </div>
-              ) : null}
-            </div>
+              </AccordionTrigger>
+              <AccordionContent className="pb-4 pt-2">
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label>Perfil de risco</Label>
+                      <Select
+                        value={riskProfile}
+                        onValueChange={(value) =>
+                          updateSettings({ riskProfile: value as typeof riskProfile })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o perfil" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {riskProfileOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Objetivo principal</Label>
+                      <Select
+                        value={goal}
+                        onValueChange={(value) => updateSettings({ goal: value as typeof goal })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o objetivo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {goalOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
-            {exportsEnabled ? (
-              <Button variant="outline" onClick={handleExportCSV} className="btn-financial--ghost">
-                <Download className="mr-2 h-4 w-4" />
-                Exportar CSV
-              </Button>
-            ) : gatingLoading ? null : (
-              <FeatureLock
-                title="Exportar relatórios CSV"
-                description="Crie exportações completas ao migrar para os planos pagos."
-              />
-            )}
-          </CardContent>
-        </Card>
+                  <div className="space-y-1">
+                    <Label>Moeda base</Label>
+                    <div className="rounded-md border border-input bg-input px-3 py-2 text-sm">
+                      {baseCurrency}
+                    </div>
+                  </div>
 
-        {/* Adicionar Item */}
-        <Card className="financial-card">
-          <CardHeader>
+                  {showAdvancedSettings ? (
+                    <>
+                      <div>
+                        <Label>Orçamento de Aporte (R$)</Label>
+                        <Input
+                          inputMode="decimal"
+                          value={draftBudget}
+                          onChange={(e) => setDraftBudget(e.target.value)}
+                          onBlur={() => handleBudgetChange(Number(draftBudget) || 0)}
+                          className="input-financial"
+                        />
+                      </div>
+
+                      {goalsEnabled ? (
+                        <>
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                            <div>
+                              <Label>Meta FIIs (%)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={draftTargets.fii}
+                                onChange={(e) =>
+                                  setDraftTargets((d) => ({ ...d, fii: e.target.value }))
+                                }
+                                onBlur={() => handleTargetChange("fii", Number(draftTargets.fii) || 0)}
+                                className="input-financial"
+                              />
+                            </div>
+                            <div>
+                              <Label>Meta Ações (%)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={draftTargets.acao}
+                                onChange={(e) =>
+                                  setDraftTargets((d) => ({ ...d, acao: e.target.value }))
+                                }
+                                onBlur={() => handleTargetChange("acao", Number(draftTargets.acao) || 0)}
+                                className="input-financial"
+                              />
+                            </div>
+                            <div>
+                              <Label>Meta Crypto (%)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={draftTargets.crypto}
+                                onChange={(e) =>
+                                  setDraftTargets((d) => ({ ...d, crypto: e.target.value }))
+                                }
+                                onBlur={() => handleTargetChange("crypto", Number(draftTargets.crypto) || 0)}
+                                className="input-financial"
+                              />
+                            </div>
+                          </div>
+
+                          <div
+                            className={cn(
+                              "text-xs mt-1",
+                              sumIsOk ? "text-muted-foreground" : "text-amber-500",
+                            )}
+                          >
+                            Soma das metas: {sumTargets}%{" "}
+                            {remaining !== 0 && `(restante ${remaining > 0 ? "+" : ""}${remaining}%)`}
+                          </div>
+                        </>
+                      ) : null}
+                      <div>
+                        <Label>Token BRAPI (opcional)</Label>
+                        <Input
+                          value={token}
+                          onChange={(event) => handleTokenChange(event.target.value)}
+                          placeholder="Informe seu token para limites maiores"
+                          className="input-financial"
+                        />
+                      </div>
+
+                      {exportsEnabled ? (
+                        <Button
+                          variant="outline"
+                          onClick={handleExportCSV}
+                          className="btn-financial--ghost"
+                        >
+                          <Download className="mr-2 h-4 w-4" />
+                          Exportar CSV
+                        </Button>
+                      ) : null}
+                    </>
+                  ) : null}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+
+            {reportsEnabled ? (
+              <AccordionItem value="setor" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Resumo por setor</div>
+                      <div className="text-xs text-muted-foreground">Distribuição da carteira.</div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  <SectorSummary />
+                </AccordionContent>
+              </AccordionItem>
+            ) : null}
+
+            {reportsEnabled ? (
+              <AccordionItem value="precos" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Painel de preços</div>
+                      <div className="text-xs text-muted-foreground">Variação e comparativos.</div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  <PricesPanel />
+                </AccordionContent>
+              </AccordionItem>
+            ) : null}
+          </Accordion>
+        </CardContent>
+      </Card>
+
+      {/* Carteira */}
+      <Card className="financial-card px-2">
+        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
             <CardTitle className="flex items-center">
-              <Plus className="mr-2 h-5 w-5" />
-              Adicionar Investimento
+              <TrendingUp className="mr-2 h-5 w-5" />
+              Ativos ({state.portfolio.length})
             </CardTitle>
-            <CardDescription>Preencha os dados do ativo para incluí-lo na carteira.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
+            <CardDescription>
+              Total investido {formatCurrency(total)} | Dividendos mês {formatCurrency(totals.dividendos)}
+            </CardDescription>
+          </div>
+          {cardsModuleEnabled ? (
+            <div className="inline-flex items-center gap-1 rounded-md border p-1">
+              <Toggle
+                pressed={view === "card"}
+                onPressedChange={(pressed) => {
+                  if (pressed) setView("card");
+                }}
+                size="sm"
+                className="gap-2"
+                aria-pressed={view === "card"}
+                aria-label="Ver em cards"
+              >
+                <LayoutGrid className="h-4 w-4" />
+                <span className="hidden sm:inline">Cards</span>
+              </Toggle>
+              <Toggle
+                pressed={view === "table"}
+                onPressedChange={(pressed) => {
+                  if (pressed) setView("table");
+                }}
+                size="sm"
+                className="gap-2"
+                aria-pressed={view === "table"}
+                aria-label="Ver em lista"
+              >
+                <Rows className="h-4 w-4" />
+                <span className="hidden sm:inline">Lista</span>
+              </Toggle>
+            </div>
+          ) : null}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {state.portfolio.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border/60 p-8 text-center text-muted-foreground">
+              <TrendingUp className="mx-auto mb-4 h-10 w-10 opacity-50" />
+              <p className="font-medium">Sua carteira esta vazia</p>
+              <p className="text-sm">Adicione investimentos para comecar a acompanhar seu patrimonio.</p>
+            </div>
+          ) : (
+            <Accordion type="multiple" className="space-y-3">
+              <AccordionItem value="fii" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">FIIs</div>
+                      <div className="text-xs text-muted-foreground">
+                        {allocations.fiiPct.toFixed(0)}% · {formatCurrency(totals.fii)}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  {renderAssets(assetsByClass.FII)}
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="acao" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Ações</div>
+                      <div className="text-xs text-muted-foreground">
+                        {allocations.acaoPct.toFixed(0)}% · {formatCurrency(totals.acao)}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  {renderAssets(assetsByClass.ACAO)}
+                </AccordionContent>
+              </AccordionItem>
+              <AccordionItem value="crypto" className="rounded-md border border-border/60 px-4">
+                <AccordionTrigger className="py-4 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-3 text-left">
+                    <div>
+                      <div className="text-sm font-semibold">Crypto</div>
+                      <div className="text-xs text-muted-foreground">
+                        {allocations.cryptoPct.toFixed(0)}% · {formatCurrency(totals.crypto)}
+                      </div>
+                    </div>
+                    <span className="text-xs text-muted-foreground">Ver detalhes</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-4 pt-2">
+                  {renderAssets(assetsByClass.CRYPTO)}
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showAddForm} onOpenChange={setShowAddForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Adicionar Investimento</DialogTitle>
+            <DialogDescription>Preencha os dados do ativo para incluí-lo na carteira.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Classe</Label>
@@ -793,264 +1170,26 @@ const WalletManager = () => {
               <Plus className="mr-2 h-4 w-4" />
               Adicionar à Carteira
             </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Carteira */}
-      <Card className="financial-card">
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle className="flex items-center">
-              <TrendingUp className="mr-2 h-5 w-5" />
-              Ativos ({state.portfolio.length})
-            </CardTitle>
-            <CardDescription>
-              Total investido {formatCurrency(total)} | Dividendos mês {formatCurrency(totals.dividendos)}
-            </CardDescription>
           </div>
-          {cardsModuleEnabled ? (
-            <div className="inline-flex items-center gap-1 rounded-md border p-1">
-              <Toggle
-                pressed={view === "card"}
-                onPressedChange={(pressed) => {
-                  if (pressed) setView("card");
-                }}
-                size="sm"
-                className="gap-2"
-                aria-pressed={view === "card"}
-                aria-label="Ver em cards"
-              >
-                <LayoutGrid className="h-4 w-4" />
-                <span className="hidden sm:inline">Cards</span>
-              </Toggle>
-              <Toggle
-                pressed={view === "table"}
-                onPressedChange={(pressed) => {
-                  if (pressed) setView("table");
-                }}
-                size="sm"
-                className="gap-2"
-                aria-pressed={view === "table"}
-                aria-label="Ver em lista"
-              >
-                <Rows className="h-4 w-4" />
-                <span className="hidden sm:inline">Lista</span>
-              </Toggle>
-            </div>
-          ) : (
-            <FeatureLock
-              title="Visualização em cards"
-              description="Ative os cards de carteira atualizando para o plano Pro."
-              variant="inline"
-            />
-          )}
-        </CardHeader>
-        <CardContent>
-          {state.portfolio.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border/60 p-8 text-center text-muted-foreground">
-              <TrendingUp className="mx-auto mb-4 h-10 w-10 opacity-50" />
-              <p className="font-medium">Sua carteira esta vazia</p>
-              <p className="text-sm">Adicione investimentos para comecar a acompanhar seu patrimonio.</p>
-            </div>
-          ) : (
-            <>
-              {view === "card" && (
-                <div className="wallet-asset-grid grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {state.portfolio.map((item) => {
-                    const value = item.qty * (item.price ?? 0);
-                    const dividends = value * ((item.monthlyYield ?? 0) / 100);
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddForm(false)}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-                    return (
-                      <Card key={item.id} className="wallet-asset-card h-auto">
-                        <CardHeader className="wallet-asset-card__header flex flex-col items-start gap-2">
-                          <div className="flex w-full items-start justify-between gap-3">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
-                                {item.assetClass ?? "-"}
-                              </Badge>
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-semibold leading-tight">{item.symbol}</p>
-                                <p className="text-xs text-muted-foreground break-words">{item.name ?? "-"}</p>
-                              </div>
-                            </div>
-                            <span className="text-sm font-semibold text-muted-foreground">
-                              {formatCurrency(value)}
-                            </span>
-                          </div>
-                          <p className="text-xs text-muted-foreground break-words">
-                            {item.sector || "Nao informado"}
-                          </p>
-                        </CardHeader>
-                        <CardContent className="wallet-asset-card__body space-y-3 pt-0">
-                          <div className="wallet-asset-fields flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                              <span className="text-xs text-muted-foreground">Qtd</span>
-                              <Input
-                                type="number"
-                                value={item.qty}
-                                onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
-                                className="w-full min-w-0 text-right text-sm"
-                              />
-                            </div>
-                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                              <span className="text-xs text-muted-foreground">Preco (R$)</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={item.price ?? 0}
-                                onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
-                                className="w-full min-w-0 text-right text-sm"
-                              />
-                            </div>
-                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                              <span className="text-xs text-muted-foreground">DY Mensal (%)</span>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={item.monthlyYield ?? 0}
-                                onChange={(event) =>
-                                  updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
-                                }
-                                className="w-full min-w-0 text-right text-sm"
-                              />
-                            </div>
-                            <div className="wallet-asset-field flex min-w-[160px] flex-1 items-center justify-between gap-2">
-                              <span className="text-xs text-muted-foreground">Setor</span>
-                              <span className="min-w-0 break-words text-sm font-medium">
-                                {item.sector || "Nao informado"}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="wallet-asset-summary flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <span className="text-sm text-muted-foreground">
-                              Dividendos/mes:
-                              <span className="ml-1 font-semibold text-success">{formatCurrency(dividends)}</span>
-                            </span>
-                            <span className="text-sm text-muted-foreground">
-                              Valor total:
-                              <span className="ml-1 font-semibold">{formatCurrency(value)}</span>
-                            </span>
-                          </div>
-                        </CardContent>
-                        <CardFooter className="wallet-asset-card__footer flex flex-wrap gap-2 pt-0">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => refreshTicker(item.symbol)}
-                            disabled={loading}
-                          >
-                            Atualizar
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeItem(item.id)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            Remover
-                          </Button>
-                        </CardFooter>
-                      </Card>
-                    );
-                  })}
-                </div>
-              )}
-
-              {view === "table" && (
-                <div className="wallet-table-wrapper overflow-x-auto mt-6">
-                  <table className="data-table min-w-[720px]">
-                    <thead>
-                      <tr>
-                        <th>Classe</th>
-                        <th>Ticker</th>
-                        <th>Nome</th>
-                        <th>Setor</th>
-                        <th>Qtd</th>
-                        <th>Preco</th>
-                        <th>DY Mensal</th>
-                        <th>Div/Mes</th>
-                        <th>Valor Total</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {state.portfolio.map((item: PortfolioItem) => {
-                        const value = item.qty * (item.price ?? 0);
-                        const dividends = value * ((item.monthlyYield ?? 0) / 100);
-                        return (
-                          <tr key={item.id}>
-                            <td>
-                              <Badge variant={item.assetClass === "FII" ? "default" : "secondary"}>
-                                {item.assetClass ?? "-"}
-                              </Badge>
-                            </td>
-                            <td className="font-mono font-semibold">{item.symbol}</td>
-                            <td className="max-w-[160px] break-words">{item.name ?? "-"}</td>
-                            <td className="max-w-[160px] break-words">{item.sector ?? "-"}</td>
-                            <td>
-                              <Input
-                                type="number"
-                                value={item.qty}
-                                onChange={(event) => updateItem(item.id, { qty: Number(event.target.value) || 0 })}
-                                className="text-xs text-right"
-                              />
-                            </td>
-                            <td>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={item.price ?? 0}
-                                onChange={(event) => updateItem(item.id, { price: Number(event.target.value) || 0 })}
-                                className="text-xs text-right"
-                              />
-                            </td>
-                            <td>
-                              <Input
-                                type="number"
-                                step="0.01"
-                                value={item.monthlyYield ?? 0}
-                                onChange={(event) =>
-                                  updateItem(item.id, { monthlyYield: Number(event.target.value) || 0 })
-                                }
-                                className="text-xs text-right"
-                              />
-                            </td>
-                            <td className="font-medium text-success">{formatCurrency(dividends)}</td>
-                            <td className="font-medium">{formatCurrency(value)}</td>
-                            <td>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => refreshTicker(item.symbol)}
-                                  className="px-2"
-                                  disabled={loading}
-                                  title={`Atualizar ${item.symbol}`}
-                                >
-                                  Atualizar
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeItem(item.id)}
-                                  className="p-0 text-destructive hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+      {!showAddForm ? (
+        <Button
+          type="button"
+          onClick={() => setShowAddForm(true)}
+          className="fixed bottom-6 right-6 z-40 h-12 w-12 rounded-full p-0 shadow-lg sm:bottom-8 sm:right-8 sm:h-12 sm:w-auto sm:rounded-full sm:px-4"
+        >
+          <Plus className="h-5 w-5 sm:mr-2" />
+          <span className="hidden sm:inline">Adicionar investimento</span>
+          <span className="sr-only">Adicionar investimento</span>
+        </Button>
+      ) : null}
     </div>
   );
 };

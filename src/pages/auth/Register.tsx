@@ -4,11 +4,9 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useToast } from "@/hooks/use-toast";
-import { signInWithGoogle, signUpWithEmail } from "@/hooks/useAuth";
+import { signUpWithEmail } from "@/hooks/useAuth";
 
 const RegisterPage = () => {
-  const { toast } = useToast();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -43,23 +41,12 @@ const RegisterPage = () => {
     setInfoMessage("Enviamos um link para confirmar seu cadastro. Verifique seu e-mail.");
   };
 
-  const handleGoogle = async () => {
-    const message = await signInWithGoogle();
-    if (message) {
-      toast({
-        variant: "destructive",
-        title: "Nao foi possivel iniciar o cadastro",
-        description: message,
-      });
-    }
-  };
-
   return (
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
       <Card className="w-full max-w-md space-y-4">
         <CardHeader className="space-y-2">
           <CardTitle className="text-2xl">Criar conta</CardTitle>
-          <CardDescription>Cadastre-se com e-mail e senha ou continue com sua conta Google.</CardDescription>
+          <CardDescription>Cadastre-se com e-mail e senha.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <form className="space-y-3" onSubmit={handleSubmit}>
@@ -105,15 +92,6 @@ const RegisterPage = () => {
             </Button>
           </form>
 
-          <div className="flex items-center gap-2">
-            <span className="h-px flex-1 bg-muted" />
-            <span className="text-xs uppercase text-muted-foreground">ou</span>
-            <span className="h-px flex-1 bg-muted" />
-          </div>
-
-          <Button type="button" variant="outline" className="w-full" onClick={handleGoogle}>
-            Entrar com Google
-          </Button>
         </CardContent>
         <CardFooter className="justify-center text-sm">
           <span className="text-muted-foreground">

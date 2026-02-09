@@ -70,16 +70,6 @@ Set the following variables locally (`.env`) and in Vercel before building:
 
 > Nunca aponte `VITE_SUPABASE_URL` para `https://app.heygar.com.br`; essa URL é a origem do frontend, não do Supabase.
 
-## Google OAuth & Supabase Auth
-
-1. No Google Cloud Console:
-   - **Authorized JavaScript origins**: `https://app.heygar.com.br` e `http://localhost:8080`.
-   - **Authorized redirect URIs**: `https://<SEU-PROJ>.supabase.co/auth/v1/callback`.
-2. Em Supabase > Auth > URL Configuration:
-   - **Site URL**: `https://app.heygar.com.br`.
-   - **Redirect URLs**: `https://app.heygar.com.br/*`.
-3. A anon key pode ficar no frontend; nunca versionar a service role.
-
 ## How can I deploy this project?
 
 Simply open [Lovable](https://lovable.dev/projects/4cbe48e4-069f-4670-ac9b-0c842b28ba76) and click on Share -> Publish.

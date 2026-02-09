@@ -1,78 +1,37 @@
-import { useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   TrendingUp,
   Wallet,
-  Calculator,
   ShoppingBasket,
-  PieChart,
-  BarChart3,
-  Cloud,
+  ClipboardList,
   Goal,
-  UsersRound,
 } from "lucide-react";
 import { Link } from "react-router-dom";
-import FeatureLock from "@/components/FeatureLock";
 import { useFeatureFlags } from "@/hooks/useFeatureFlags";
-import { usePremiumAccess } from "@/hooks/usePremiumAccess";
-import { useAuth } from "@/hooks/useAuth";
-import { useEntitlements } from "@/hooks/useEntitlements";
+import { useBudgetFamiliarSummary } from "@/modules/budgetFamiliar/hooks/useBudgetFamiliarSummary";
+import { useCashForecast } from "@/modules/budgetFamiliar/hooks/useCashForecast";
+import { useWalletSummary } from "@/modules/wallet/hooks/useWalletSummary";
+
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value || 0);
 
 export default function Dashboard() {
   const { flags } = useFeatureFlags();
-  const { allowed: premiumAllowed, loading: premiumLoading } = usePremiumAccess();
-  const { user } = useAuth();
-  const { effectiveTier, trialExpiresAt } = useEntitlements();
-  const trialActive = effectiveTier === "trial";
-  const trialExpiryLabel =
-    trialActive && trialExpiresAt
-      ? new Date(trialExpiresAt).toLocaleDateString()
-      : null;
-  const trialMessage = `Teste gratuito ativo até ${trialExpiryLabel ?? "o fim do período"}.`;
-  const { OPEN_FINANCE, CASH_FORECAST, MULTI_PROFILE } = flags;
-  const openFinanceEnabled = premiumAllowed || OPEN_FINANCE;
-  const cashForecastEnabled = premiumAllowed || CASH_FORECAST;
-  const multiProfileEnabled = premiumAllowed || MULTI_PROFILE;
-  const openFinanceLockDescription = trialActive
-    ? trialMessage
-    : "Conecte contas bancárias e sincronize ativos liberando o plano Pro.";
-  const cashForecastLockDescription = trialActive
-    ? trialMessage
-    : "Ative projeções semanais e alertas liberando o plano Premium.";
-  const multiProfileLockDescription = trialActive
-    ? trialMessage
-    : "Disponível no plano Premium para contas familiares e squads.";
-
-  useEffect(() => {
-    if (premiumLoading) return;
-
-    const nowIso = new Date().toISOString();
-    [
-      { key: "open-finance", locked: !openFinanceEnabled },
-      { key: "cash-forecast", locked: !cashForecastEnabled },
-      { key: "multi-profile", locked: !multiProfileEnabled },
-    ]
-      .filter((gate) => gate.locked)
-      .forEach((gate) => {
-        console.warn("[Gate] closed", {
-          userId: user?.id ?? null,
-          plan: effectiveTier,
-          trialEndsAt: trialExpiresAt,
-          now: nowIso,
-          gateKey: gate.key,
-        });
-      });
-  }, [
-    premiumLoading,
-    openFinanceEnabled,
-    cashForecastEnabled,
-    multiProfileEnabled,
-    user?.id,
-    effectiveTier,
-    trialExpiresAt,
-  ]);
+  const budget = useBudgetFamiliarSummary();
+  const cashForecast = useCashForecast();
+  const wallet = useWalletSummary();
+  const { CASH_FORECAST } = flags;
+  const cashForecastEnabled = CASH_FORECAST;
+  const riskLabel = {
+    low: "Baixo",
+    medium: "Médio",
+    high: "Alto",
+  }[cashForecast.riskLevel];
+  const riskClass = {
+    low: "text-success",
+    medium: "text-warning",
+    high: "text-destructive",
+  }[cashForecast.riskLevel];
 
   return (
     <main className="container mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -107,46 +66,44 @@ export default function Dashboard() {
                 <CardDescription>Gerencie FIIs, ações e acompanhe seus rendimentos</CardDescription>
               </div>
             </CardHeader>
-            <CardContent className="flex items-center gap-4">
-              <div className="flex-1 grid grid-cols-2 gap-4">
-                <div>
+            <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center">
+              <div className="flex-1 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="min-w-0">
                   <div className="kpi-label">Valor Total</div>
-                  <div className="kpi-value">R$ 0,00</div>
+                  <div className="kpi-value break-words leading-tight">
+                    {formatCurrency(wallet.totalValue)}
+                  </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="kpi-label">Rendimento/Mês</div>
-                  <div className="kpi-value text-success">R$ 0,00</div>
+                  <div className="kpi-value text-success break-words leading-tight">
+                    {formatCurrency(wallet.monthlyYield)}
+                  </div>
                 </div>
               </div>
-              <PieChart className="h-12 w-12 text-emerald-400/60" />
+              
             </CardContent>
           </Card>
         </Link>
 
-        {/* Orçamento */}
-        <Link to="/budget" className="block h-full">
+        {/* Orçamento Familiar Completo */}
+        <Link to="/budget-familiar" className="block h-full">
           <Card className="h-full cursor-pointer transition-transform hover:scale-[1.02]">
             <CardHeader className="flex flex-row items-center space-y-0 pb-3">
-              <div className="p-2 bg-cyan-500/20 rounded-lg mr-3">
-                <Calculator className="h-6 w-6 text-cyan-400" />
+              <div className="p-2 bg-primary/20 rounded-lg mr-3">
+                <ClipboardList className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <CardTitle className="text-lg">Orçamento Familiar</CardTitle>
-                <CardDescription>Planeje e controle suas despesas mensais</CardDescription>
+                <CardTitle className="text-lg">Orçamento Familiar Completo</CardTitle>
+                <CardDescription>Fluxo completo com receitas, despesas fixas e variáveis</CardDescription>
               </div>
             </CardHeader>
-            <CardContent className="flex items-center gap-4">
-              <div className="flex-1 grid grid-cols-2 gap-4">
-                <div>
-                  <div className="kpi-label">Receitas</div>
-                  <div className="kpi-value text-success">R$ 0,00</div>
-                </div>
-                <div>
-                  <div className="kpi-label">Despesas</div>
-                  <div className="kpi-value text-destructive">R$ 0,00</div>
-                </div>
-              </div>
-              <BarChart3 className="h-12 w-12 text-cyan-400/60" />
+            <CardContent className="flex-1">
+              <p className="text-sm text-muted-foreground break-words">
+                Controle mensal com parcelamentos, recorrência e visão anual. Receitas{" "}
+                {formatCurrency(budget.incomeTotal)} · Despesas{" "}
+                {formatCurrency(budget.expenseTotal)}.
+              </p>
             </CardContent>
           </Card>
         </Link>
@@ -174,55 +131,35 @@ export default function Dashboard() {
       <div className="financial-card">
         <h2 className="text-xl font-semibold mb-4">Resumo Financeiro</h2>
         <div className="kpi-grid">
-          <div className="kpi-card">
+          <div className="kpi-card min-w-0">
             <div className="kpi-label">Patrimônio Total</div>
-            <div className="kpi-value text-primary">R$ 0,00</div>
+            <div className="kpi-value text-primary break-words leading-tight">
+              {formatCurrency(wallet.totalValue)}
+            </div>
           </div>
-          <div className="kpi-card">
+          <div className="kpi-card min-w-0">
             <div className="kpi-label">Renda Passiva</div>
-            <div className="kpi-value text-success">R$ 0,00</div>
+            <div className="kpi-value text-success break-words leading-tight">
+              {formatCurrency(wallet.monthlyYield)}
+            </div>
           </div>
-          <div className="kpi-card">
+          <div className="kpi-card min-w-0">
             <div className="kpi-label">Gastos Mensais</div>
-            <div className="kpi-value text-warning">R$ 0,00</div>
+            <div className="kpi-value text-warning break-words leading-tight">
+              {formatCurrency(budget.expenseTotal)}
+            </div>
           </div>
-          <div className="kpi-card">
+          <div className="kpi-card min-w-0">
             <div className="kpi-label">Saldo Livre</div>
-            <div className="kpi-value">R$ 0,00</div>
+            <div className="kpi-value break-words leading-tight">
+              {formatCurrency(budget.balanceTotal)}
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {openFinanceEnabled ? (
-          <Card className="h-full">
-            <CardHeader className="flex flex-row items-start justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Cloud className="h-5 w-5 text-primary" />
-                  Open Finance conectado
-                </CardTitle>
-                <CardDescription>Sincronize bancos e atualize a carteira automaticamente.</CardDescription>
-              </div>
-              <Badge variant="secondary" className="text-xs uppercase">Beta</Badge>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Importações e consolidação de contas ativas com reconciliação diária.
-              </p>
-              <Button asChild size="sm">
-                <Link to="/wallet">Ver integrações</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ) : premiumLoading ? null : (
-          <FeatureLock
-            title="Integrações Open Finance"
-            description={openFinanceLockDescription}
-          />
-        )}
-
-        {cashForecastEnabled ? (
+      {cashForecastEnabled ? (
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <Card className="h-full">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -234,48 +171,18 @@ export default function Dashboard() {
             <CardContent className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Próximos 30 dias</span>
-                <span className="font-semibold text-primary">R$ 0,00</span>
+                <span className="font-semibold text-primary">
+                  {formatCurrency(cashForecast.projectedBalance30d)}
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Risco de caixa</span>
-                <span className="font-semibold text-success">Baixo</span>
+                <span className={`font-semibold ${riskClass}`}>{riskLabel}</span>
               </div>
             </CardContent>
           </Card>
-        ) : premiumLoading ? null : (
-          <FeatureLock
-            title="Forecast de caixa"
-            description={cashForecastLockDescription}
-          />
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {multiProfileEnabled ? (
-          <Card className="h-full">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <UsersRound className="h-5 w-5 text-primary" />
-                Perfis familiares
-              </CardTitle>
-              <CardDescription>Gerencie finanças pessoais em perfis separados.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Compartilhe carteiras e metas com convidados ou clientes.
-              </p>
-              <Button asChild variant="outline" size="sm">
-                <Link to="/profile">Ir para perfis</Link>
-              </Button>
-            </CardContent>
-          </Card>
-        ) : premiumLoading ? null : (
-          <FeatureLock
-            title="Multi perfis"
-            description={multiProfileLockDescription}
-          />
-        )}
-      </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -1,5 +1,4 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ensureTrial } from "@/lib/ensureTrial";
 
 const url = import.meta.env.VITE_SUPABASE_URL!;
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY!;
@@ -11,24 +10,6 @@ export const supabase: SupabaseClient = createClient(url, anon, {
     detectSessionInUrl: true,
   },
 });
-
-let trialHookBound = false;
-
-export function bindTrialHookOnce() {
-  if (trialHookBound) return;
-  trialHookBound = true;
-
-  supabase.auth.onAuthStateChange(async (_event, session) => {
-    const userId = session?.user?.id;
-    if (!userId) return;
-
-    try {
-      await ensureTrial(supabase, userId);
-    } catch (error) {
-      console.error("[ensureTrial onAuth] failed:", error);
-    }
-  });
-}
 
 /**
  * Helpers de DEV no navegador (sem usar `any`)

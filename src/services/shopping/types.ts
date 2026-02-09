@@ -7,7 +7,7 @@ export type ShoppingItem = {
   preco?: number;          // unitario
   marca?: string;
   observacao?: string;
-  status: "pendente" | "carrinho" | "comprado";
+  status?: "pendente" | "carrinho" | "comprado";
   icon?: string;           // nome do icone (lucide) ou emoji
   dicaReceita?: string;
   nutricao?: string;
@@ -33,8 +33,36 @@ export type ShoppingList = {
 export type ShoppingState = {
   listas: ShoppingList[];
   listaAtivaId?: string;
-  plan: "free" | "pro";
+};
+
+export type ShoppingHistoryEntry = {
+  id: string;
+  listId: string;
+  nome: string;
+  itens: ShoppingItem[];
+  finalizedAt: number;
+};
+
+export type ShoppingPriceEntry = {
+  id: string;
+  normalizedName: string;
+  categoriaId: string;
+  preco: number;
+  mercado?: string;
+  purchasedAt: number;
+};
+
+export type ShoppingExpensePayload = {
+  source: "shopping-list";
+  total: number;
+  date: string;
+  category: string;
+  description: string;
+  metadata: {
+    listId: string;
+    itemCount: number;
+  };
 };
 
 export type FilterStatus = "todos" | "pendente" | "carrinho" | "comprado";
-export type SortBy = "nome" | "categoria" | "status" | "preco";
+export type SortBy = "nome" | "categoria" | "preco";
