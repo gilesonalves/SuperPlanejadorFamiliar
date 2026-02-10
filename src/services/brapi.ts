@@ -1,5 +1,6 @@
+import { getClientId } from "@/services/clientId";
+
 const API_QUOTES = "/api/quotes";
-const CLIENT_ID_KEY = "sp_client_id";
 
 type BrapiQuote = Record<string, unknown>;
 type BrapiResponse = {
@@ -18,26 +19,6 @@ function extractResults(payload: unknown): BrapiQuote[] {
   const { results } = payload as BrapiResponse;
   if (!Array.isArray(results)) return [];
   return results.filter(isRecord) as BrapiQuote[];
-}
-
-function generateClientId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function getClientId(): string {
-  if (typeof window === "undefined") return "anonymous";
-  try {
-    const existing = localStorage.getItem(CLIENT_ID_KEY);
-    if (existing) return existing;
-    const created = generateClientId();
-    localStorage.setItem(CLIENT_ID_KEY, created);
-    return created;
-  } catch {
-    return "anonymous";
-  }
 }
 
 function buildHeaders(opts?: { countAction?: boolean }): HeadersInit {
